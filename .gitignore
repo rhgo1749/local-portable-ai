@@ -1,0 +1,33 @@
+# ==========================================
+# Local-Portable-AI .gitignore
+# ==========================================
+
+# 1. AI Model Folders (루트 레벨 모델 폴더 - 배포 시 임시 제외)
+gemma-4*/
+
+# 2. 압축 배포본 (대용량 바이너리)
+*.7z
+
+# 3. 백업 / 임시 파일
+*.old
+
+# 4. models 서브폴더 (가이드 파일만 유지)
+models/*
+!models/README.md
+!models/CHANGELOG.md
+!models/이곳에 모델폴더를 넣어주세요*
+
+# 5. Local Cache & Temporary Files (런타임 임시 파일)
+.mcp_cache/*
+debug_mcp.log
+
+# 6. Workspace / User Data (더미데이터로 시작하는 테스트 파일은 유지, 그 외 제외)
+작업공간/*
+!작업공간/더미데이터*
+!.gitkeep
+
+# 7. OS & Editor Templates
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

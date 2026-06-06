@@ -1,0 +1,147 @@
+{
+  "name": "@hyzyla/pdfium",
+  "version": "2.1.13",
+  "description": "Universal wrapper for PDFium",
+  "type": "module",
+  "types": "dist/index.esm.d.ts",
+  "exports": {
+    ".": {
+      "browser": {
+        "types": "./dist/index.esm.d.ts",
+        "default": "./dist/index.esm.browser.js"
+      },
+      "import": {
+        "types": "./dist/index.esm.d.ts",
+        "default": "./dist/index.esm.js"
+      },
+      "require": {
+        "types": "./dist/index.cjs.d.ts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./browser/cdn": {
+      "types": "./dist/index.esm.cdn.d.ts",
+      "default": "./dist/index.esm.cdn.js"
+    },
+    "./browser/base64": {
+      "types": "./dist/index.esm.base64.d.ts",
+      "default": "./dist/index.esm.base64.js"
+    },
+    "./worker": {
+      "types": "./dist/index.esm.worker.d.ts",
+      "default": "./dist/index.esm.worker.js"
+    },
+    "./pdfium.wasm": "./dist/pdfium.wasm",
+    "./dist/*": "./dist/*"
+  },
+  "browser": {
+    "fs": false,
+    "url": false,
+    "node": false,
+    "path": false,
+    "crypto": false,
+    "module": false
+  },
+  "scripts": {
+    "build:watch": "rollup --config rollup.config.mjs --watch",
+    "build:prod": "rollup --config rollup.config.mjs --environment NODE_ENV:production",
+    "clean": "rm -rf dist",
+    "check:fix": "biome check --write",
+    "check:ci": "biome ci",
+    "check:test": "vitest",
+    "check:types": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hyzyla/pdfium"
+  },
+  "author": "Yevhenii Hyzyla",
+  "license": "MIT",
+  "files": [
+    "dist/**/*"
+  ],
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.8",
+    "@octokit/rest": "^22.0.1",
+    "@rollup/plugin-commonjs": "^29.0.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-replace": "^6.0.3",
+    "@rollup/plugin-typescript": "^12.3.0",
+    "@types/jest-image-snapshot": "^6.4.0",
+    "@types/node": "^20.19.25",
+    "axios": "^1.13.2",
+    "jest-image-snapshot": "^6.5.1",
+    "prettier": "^3.7.4",
+    "rollup": "^4.53.3",
+    "rollup-plugin-copy": "^3.5.0",
+    "rollup-plugin-delete": "^3.0.1",
+    "sharp": "^0.34.5",
+    "tar": "^7.5.2",
+    "ts-node": "^10.9.1",
+    "tslib": "^2.8.1",
+    "unzipper": "^0.12.3",
+    "vitest": "^2.1.9"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "========== Tools ==========": "",
+  "eslintConfig": {
+    "env": {
+      "browser": true,
+      "es2021": true
+    },
+    "extends": [
+      "eslint:recommended",
+      "plugin:@typescript-eslint/recommended",
+      "plugin:import/recommended",
+      "plugin:import/typescript"
+    ],
+    "overrides": [],
+    "parser": "@typescript-eslint/parser",
+    "parserOptions": {
+      "ecmaVersion": "latest",
+      "sourceType": "module"
+    },
+    "plugins": [
+      "@typescript-eslint",
+      "import"
+    ],
+    "rules": {
+      "import/order": [
+        "error",
+        {
+          "groups": [
+            "builtin",
+            "external",
+            "internal",
+            "parent",
+            "sibling",
+            "index"
+          ],
+          "pathGroups": [
+            {
+              "pattern": "./vendor/**",
+              "group": "external",
+              "position": "after"
+            }
+          ],
+          "newlines-between": "always",
+          "alphabetize": {
+            "order": "asc",
+            "caseInsensitive": true
+          }
+        }
+      ]
+    },
+    "ignorePatterns": [
+      "src/vendor/**/*"
+    ],
+    "settings": {
+      "import/resolver": {
+        "typescript": true,
+        "node": true
+      }
+    }
+  }
+}

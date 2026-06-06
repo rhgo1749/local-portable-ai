@@ -26,10 +26,10 @@ echo  [NTS-Portable-AI-0.4v] 로컬 실행 메뉴
 echo ===================================================
 echo  [시스템 정보] 가용 RAM: %RAM_GB% GB ^| 스레드 할당 개수: %THREADS%
 echo ===================================================
-echo  [1] gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf c- 131072  (빠름, 긴대화길이, 낮은성능, 이미지)
-echo  [2] gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf c- 131072 (중간, 긴대화길이, 중간성능, 이미지)
-echo  [3] gemma-4-12B-it-qat-UD-Q4_K_XL.gguf c- 65536 (느림, 중간대화길이, 고성능, 이미지)
-echo  [4] gemma-4-26B-A4B-it-UD-IQ3_S.gguf c- 16384 (중간, 짧은대화길이, 고성능)
+echo  [1] gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf c- 131072  (권장 4G ram, 빠름, 긴대화길이, 낮은성능, 이미지)
+echo  [2] gemma-4-E4B-it-qat-UD-Q4_K_XL.gguf c- 131072 (권장 8G ram, 중간, 긴대화길이, 중간성능, 이미지)
+echo  [3] gemma-4-12B-it-qat-UD-Q4_K_XL.gguf c- 65536 (권장 16G ram, 느림, 중간대화길이, 고성능, 이미지)
+echo  [4] gemma-4-26B-A4B-it-UD-IQ3_S.gguf c- 16384 (권장 16G ram, 중간, 짧은대화길이, 고성능)
 echo  [5] 프로그램 종료
 echo ===================================================
 set /p USER_CHOICE="구동할 모델 번호를 입력하십시오 (1-5): "
@@ -198,8 +198,8 @@ if not exist "%MODEL_PATH%" (
     call :MODEL_NOT_FOUND "%MODEL_NAME%" "%MODEL_DIR%" "%MODEL_PATH%"
     goto MENU
 )
-if %RAM_GB% lss 24 (
-    call :RAM_WARNING "%MODEL_NAME%" "24"
+if %RAM_GB% lss 16 (
+    call :RAM_WARNING "%MODEL_NAME%" "16"
 )
 echo.
 echo ===================================================

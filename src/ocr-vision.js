@@ -10,6 +10,30 @@ let tesseractQueue = Promise.resolve();
 let visionQueue = Promise.resolve();
 const VISION_PAGE_TIMEOUT_MS = 1200 * 1000;
 
+// 프로그램 종료 시 글로벌 OCR 워커 안전 종료 로직 등록
+process.on('SIGINT', async () => {
+    if (globalOcrWorker) {
+        try {
+            await globalOcrWorker.terminate();
+        } catch (e) {
+            // ignore
+        }
+        globalOcrWorker = null;
+    }
+    process.exit(0);
+});
+
+process.on('exit', () => {
+    if (globalOcrWorker) {
+        try {
+            globalOcrWorker.terminate().catch(() => {});
+        } catch (e) {
+            // ignore
+        }
+        globalOcrWorker = null;
+    }
+});
+
 // 🖼️ [문서 가독성 보존형 이미지 전처리]
 async function preprocessVisionImage(imageBuffer, maxDim = 2048) {
     const canvas = require('canvas');
@@ -91,6 +115,8 @@ async function processSingleImageBuffer(imageBuffer, identity, pageNum, isSlice 
             } catch (err) {
                 resolve("");
             }
+        }).catch((err) => {
+            resolve("");
         });
     });
 
@@ -106,6 +132,8 @@ async function processSingleImageBuffer(imageBuffer, identity, pageNum, isSlice 
                     } catch (err) {
                         reject(err);
                     }
+                }).catch((err) => {
+                    reject(err);
                 });
             });
             if (visionText && !visionText.includes("No visual elements") && visionText.trim().length > 5) {

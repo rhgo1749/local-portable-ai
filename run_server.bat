@@ -9,8 +9,63 @@ set PHYSICAL_CORES=6
 set THREADS=4
 
 echo 시스템 사양을 확인하고 있습니다. 잠시만 기다려 주십시오...
-for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "[math]::round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)"`) do set RAM_GB=%%i
-for /f "usebackq tokens=*" %%i in (`powershell -NoProfile -Command "(Get-CimInstance Win32_Processor).NumberOfCores"`) do set PHYSICAL_CORES=%%i
+:: 1. RAM 감지: wmic 시도 -> 실패하면 systeminfo 폴백 -> 둘 다 안 되면 고정값 8GB
+set "RAW_RAM="
+for /f "tokens=*" %%i in ('wmic ComputerSystem get TotalPhysicalMemory 2^>nul ^| findstr [0-9]') do set "RAW_RAM=%%i"
+if not "%RAW_RAM%"=="" goto PROCESS_WMIC
+goto TRY_SYSTEMINFO
+
+:PROCESS_WMIC
+set "RAW_RAM=%RAW_RAM: =%"
+set "RAW_RAM_MB=%RAW_RAM:~0,-6%"
+if "%RAW_RAM_MB%"=="" goto TRY_SYSTEMINFO
+set /a RAM_GB=%RAW_RAM_MB% / 1024
+if %RAM_GB% gtr 0 goto CORE_DETECTION
+goto TRY_SYSTEMINFO
+
+:TRY_SYSTEMINFO
+set "SYS_RAM="
+for /f "tokens=2 delims=:" %%a in ('systeminfo 2^>nul ^| findstr /i /c:"Total Physical Memory" /c:"총 실제 메모리"') do set "SYS_RAM=%%a"
+if not "%SYS_RAM%"=="" goto PROCESS_SYSTEMINFO
+goto RAM_FALLBACK
+
+:PROCESS_SYSTEMINFO
+set "SYS_RAM=%SYS_RAM: =%"
+set "SYS_RAM=%SYS_RAM:MB=%"
+set "SYS_RAM=%SYS_RAM:,=%"
+if "%SYS_RAM%"=="" goto RAM_FALLBACK
+set /a RAM_GB=%SYS_RAM% / 1024
+if %RAM_GB% gtr 0 goto CORE_DETECTION
+goto RAM_FALLBACK
+
+:RAM_FALLBACK
+set RAM_GB=8
+
+:CORE_DETECTION
+:: 2. 코어 수 감지: wmic 시도 -> 실패하면 환경변수 %NUMBER_OF_PROCESSORS% 폴백 -> 고정값 6
+set "RAW_CORES="
+for /f "tokens=*" %%i in ('wmic CPU get NumberOfCores 2^>nul ^| findstr [0-9]') do set "RAW_CORES=%%i"
+if not "%RAW_CORES%"=="" goto PROCESS_CORES
+goto TRY_ENV_CORES
+
+:PROCESS_CORES
+set "RAW_CORES=%RAW_CORES: =%"
+if "%RAW_CORES%"=="" goto TRY_ENV_CORES
+set /a PHYSICAL_CORES=%RAW_CORES%
+if %PHYSICAL_CORES% gtr 0 goto CORE_END
+goto TRY_ENV_CORES
+
+:TRY_ENV_CORES
+if not "%NUMBER_OF_PROCESSORS%"=="" (
+    set /a PHYSICAL_CORES=%NUMBER_OF_PROCESSORS%
+    if %PHYSICAL_CORES% gtr 0 goto CORE_END
+)
+goto CORES_FALLBACK
+
+:CORES_FALLBACK
+set PHYSICAL_CORES=6
+
+:CORE_END
 
 :: 다른 작업을 해도 지장 없도록 스레드 풀을 여유롭게 할당합니다.
 :: 물리 코어가 5개 이상이면 코어 수 - 2, 4개 이하면 코어 수 - 1을 할당하며, 최대 6개, 최소 2개로 제한합니다.

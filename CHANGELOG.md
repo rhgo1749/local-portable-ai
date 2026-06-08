@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## [0.5] - 2026-06-08
+
+### Added
+- express 의존성 명시적 추가 (package.json 누락 보완)
+
+### Changed
+- mcp-bridge.js를 src/ 하위 9개 모듈로 분할 (모듈화 아키텍처 도입)
+- 시스템 감지 로직에서 PowerShell 의존성 제거 — wmic→systeminfo 폴백 방식으로 전환
+- CORS 정책과 샌드박스 검증 강화
+- 캐시 정리 프로세스 비동기화 (서버 기동 시간 단축)
+
+### Fixed
+- Tesseract Worker 종료 시 메모리/프로세스 누수 문제 해결
+- Unhandled Promise Rejection 방지 (visionQueue/tesseractQueue 체인 연결)
+- 심볼릭 링크 우회 취약점 패치
+- pdfjs-dist 문서 객체 메모리 해제 누락 수정
+
 ## [0.4.1] - 2026-06-07
 
 ### Fixed

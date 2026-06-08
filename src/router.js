@@ -19,7 +19,12 @@ const sseClients = new Map();
 
 function setupRouter(app) {
     app.use((req, res, next) => {
-        res.header('Access-Control-Allow-Origin', '*');
+        const origin = req.headers.origin;
+        if (origin && (origin.includes('127.0.0.1:8080') || origin.includes('localhost:8080'))) {
+            res.header('Access-Control-Allow-Origin', origin);
+        } else {
+            res.header('Access-Control-Allow-Origin', 'http://127.0.0.1:8080');
+        }
         res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.header('Access-Control-Allow-Headers', 'Content-Type, mcp-protocol-version');
         if (req.method === 'OPTIONS') return res.sendStatus(200);

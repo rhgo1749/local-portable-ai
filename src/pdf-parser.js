@@ -111,38 +111,48 @@ async function parsePdfHybrid(safePath, fileBuf, pageRangeStr = null) {
             }
         }
 
-        for (const pageNum of targetPages) {
-            let pageMarkdown = `\n\n---\n## 📄 제 ${pageNum} 페이지\n\n`;
-            const textContent = pageTexts[pageNum] || "";
-            if (textContent.trim()) {
-                pageMarkdown += textContent.trim() + "\n\n";
-            }
+        try {
+            for (const pageNum of targetPages) {
+                let pageMarkdown = `\n\n---\n## 📄 제 ${pageNum} 페이지\n\n`;
+                const textContent = pageTexts[pageNum] || "";
+                if (textContent.trim()) {
+                    pageMarkdown += textContent.trim() + "\n\n";
+                }
 
-            if (isVisionActive && doc) {
-                try {
-                    writeDebugLog(`[parsePdfHybrid] Rendering page ${pageNum}/${pageCount} for vision-only analysis`);
-                    const page = await doc.getPage(pageNum);
-                    const scale = 2;
-                    const viewport = page.getViewport({ scale });
-                    const canvas = require('canvas').createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
-                    const ctx = canvas.getContext("2d");
+                if (isVisionActive && doc) {
+                    try {
+                        writeDebugLog(`[parsePdfHybrid] Rendering page ${pageNum}/${pageCount} for vision-only analysis`);
+                        const page = await doc.getPage(pageNum);
+                        const scale = 2;
+                        const viewport = page.getViewport({ scale });
+                        const canvas = require('canvas').createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
+                        const ctx = canvas.getContext("2d");
 
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                    await page.render({ canvasContext: ctx, viewport }).promise;
-                    const pngBuf = canvas.toBuffer("image/png");
+                        await page.render({ canvasContext: ctx, viewport }).promise;
+                        const pngBuf = canvas.toBuffer("image/png");
 
-                    writeDebugLog(`[parsePdfHybrid] Running vision-only analyzer on page ${pageNum}`);
-                    const visionDesc = await localVisionAnalyze(pngBuf, `p${pageNum}`);
-                    if (visionDesc && !visionDesc.includes("No visual elements") && visionDesc.trim().length > 5) {
-                        pageMarkdown += `> 📷 **[시각 자료 및 그래픽 분석 명세]**\n> ${visionDesc.trim().replace(/\n/g, '\n> ')}\n\n`;
+                        writeDebugLog(`[parsePdfHybrid] Running vision-only analyzer on page ${pageNum}`);
+                        const visionDesc = await localVisionAnalyze(pngBuf, `p${pageNum}`);
+                        if (visionDesc && !visionDesc.includes("No visual elements") && visionDesc.trim().length > 5) {
+                            pageMarkdown += `> 📷 **[시각 자료 및 그래픽 분석 명세]**\n> ${visionDesc.trim().replace(/\n/g, '\n> ')}\n\n`;
+                        }
+                    } catch (visionErr) {
+                        writeDebugLog(`[parsePdfHybrid] Page ${pageNum} vision analysis skipped/failed: ${visionErr.message}`);
                     }
-                } catch (visionErr) {
-                    writeDebugLog(`[parsePdfHybrid] Page ${pageNum} vision analysis skipped/failed: ${visionErr.message}`);
+                }
+                structuredLines.push(pageMarkdown);
+            }
+        } finally {
+            if (doc) {
+                try {
+                    await doc.destroy();
+                } catch (destroyErr) {
+                    writeDebugLog(`[parsePdfHybrid] doc.destroy 실패 (디지털): ${destroyErr.message}`);
                 }
             }
-            structuredLines.push(pageMarkdown);
         }
     } else {
         console.log(`[parsePdfHybrid] 🖼️ 이미지 기반/스캔 PDF 판정: 강제 전체 OCR 및 비전 파이프라인 가동...`);
@@ -157,35 +167,45 @@ async function parsePdfHybrid(safePath, fileBuf, pageRangeStr = null) {
         });
         const doc = await loadingTask.promise;
 
-        const realPageCount = doc.numPages;
-        if (realPageCount > pageCount) {
-            console.log(`[parsePdfHybrid] 📃 실제 페이지 수 재조정: kordoc 추정치 ${pageCount} → pdfjs 확인값 ${realPageCount}`);
-            pageCount = realPageCount;
-            if (pageRangeStr) {
-                const pagesSet = parsePageRange(pageRangeStr, pageCount);
-                targetPages = Array.from(pagesSet).sort((a, b) => a - b);
-            } else {
-                targetPages = [];
-                for (let i = 1; i <= pageCount; i++) targetPages.push(i);
+        try {
+            const realPageCount = doc.numPages;
+            if (realPageCount > pageCount) {
+                console.log(`[parsePdfHybrid] 📃 실제 페이지 수 재조정: kordoc 추정치 ${pageCount} → pdfjs 확인값 ${realPageCount}`);
+                pageCount = realPageCount;
+                if (pageRangeStr) {
+                    const pagesSet = parsePageRange(pageRangeStr, pageCount);
+                    targetPages = Array.from(pagesSet).sort((a, b) => a - b);
+                } else {
+                    targetPages = [];
+                    for (let i = 1; i <= pageCount; i++) targetPages.push(i);
+                }
             }
-        }
 
-        for (const pageNum of targetPages) {
-            writeDebugLog(`[parsePdfHybrid] Rendering & OCR for page ${pageNum}/${pageCount}`);
-            const page = await doc.getPage(pageNum);
-            const scale = 2;
-            const viewport = page.getViewport({ scale });
-            const canvas = require('canvas').createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
-            const ctx = canvas.getContext("2d");
+            for (const pageNum of targetPages) {
+                writeDebugLog(`[parsePdfHybrid] Rendering & OCR for page ${pageNum}/${pageCount}`);
+                const page = await doc.getPage(pageNum);
+                const scale = 2;
+                const viewport = page.getViewport({ scale });
+                const canvas = require('canvas').createCanvas(Math.floor(viewport.width), Math.floor(viewport.height));
+                const ctx = canvas.getContext("2d");
 
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            await page.render({ canvasContext: ctx, viewport }).promise;
-            const pngBuf = canvas.toBuffer("image/png");
+                await page.render({ canvasContext: ctx, viewport }).promise;
+                const pngBuf = canvas.toBuffer("image/png");
 
-            const pageMarkdown = await localOcrHook(pngBuf, pageNum, "image/png");
-            structuredLines.push(pageMarkdown);
+                const pageMarkdown = await localOcrHook(pngBuf, pageNum, "image/png");
+                structuredLines.push(pageMarkdown);
+            }
+        } finally {
+            if (doc) {
+                try {
+                    await doc.destroy();
+                } catch (destroyErr) {
+                    writeDebugLog(`[parsePdfHybrid] doc.destroy 실패 (스캔): ${destroyErr.message}`);
+                }
+            }
         }
     }
 

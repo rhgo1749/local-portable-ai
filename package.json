@@ -1,6 +1,5 @@
 {
   "dependencies": {
-    "@napi-rs/canvas": "^1.0.0",
     "canvas": "^3.2.3",
     "kordoc": "^2.9.0",
     "pdfjs-dist": "^4.10.38",

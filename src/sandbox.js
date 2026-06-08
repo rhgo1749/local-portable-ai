@@ -8,7 +8,13 @@ const allowedDirs = [
     path.resolve(path.join(projectRoot, '작업공간')),
     path.resolve(path.join(process.cwd(), '작업공간'))  
 ].map(dir => {
-    let norm = path.resolve(dir).toLowerCase().replace(/\\/g, '/');
+    let realDir = dir;
+    try {
+        if (fs.existsSync(dir)) {
+            realDir = fs.realpathSync(dir);
+        }
+    } catch (e) {}
+    let norm = path.resolve(realDir).toLowerCase().replace(/\\/g, '/');
     if (!norm.endsWith('/')) norm += '/';
     return norm;
 });
@@ -24,6 +30,28 @@ function sanitizeInputPath(rawPath) {
     clean = clean.replace(/\\+/g, '/').replace(/\/+/g, '/');
     clean = clean.replace(/^([a-zA-Z]):\/?/g, '$1:/');
     return clean;
+}
+
+function getRealResolvedPath(resolved) {
+    let realResolved = resolved;
+    try {
+        if (fs.existsSync(resolved)) {
+            realResolved = fs.realpathSync(resolved);
+        } else {
+            let dir = path.dirname(resolved);
+            while (dir && dir !== path.dirname(dir)) {
+                if (fs.existsSync(dir)) {
+                    const realDir = fs.realpathSync(dir);
+                    realResolved = path.join(realDir, path.relative(dir, resolved));
+                    break;
+                }
+                dir = path.dirname(dir);
+            }
+        }
+    } catch (e) {
+        // fallback
+    }
+    return realResolved;
 }
 
 function findFilesRecursively(dir, fileNameQuery, results = []) {
@@ -81,7 +109,8 @@ function validatePath(targetPath, checkExists = false) {
         }
     }
 
-    const normTarget = resolved.toLowerCase().replace(/\\/g, '/');
+    const realResolved = getRealResolvedPath(resolved);
+    const normTarget = realResolved.toLowerCase().replace(/\\/g, '/');
     const isAllowed = allowedDirs.some(allowedDir => {
         const normAllowed = allowedDir.endsWith('/') ? allowedDir : allowedDir + '/';
         const normTargetWithSlash = normTarget.endsWith('/') ? normTarget : normTarget + '/';
@@ -91,18 +120,19 @@ function validatePath(targetPath, checkExists = false) {
     if (!isAllowed) {
         throw new Error(`[보안 제한] 경로 "${resolved}"는 허용된 디렉토리 영역 외부에 위치하므로 접근이 차단되었습니다.`);
     }
-    if (checkExists && !fs.existsSync(resolved)) {
+    if (checkExists && !fs.existsSync(realResolved)) {
         throw new Error(`[파일 없음] 존재하지 않는 경로입니다: "${resolved}"`);
     }
 
-    return resolved;
+    return realResolved;
 }
 
 function validateWritePath(targetPath) {
     if (!targetPath) throw new Error("파일 저장 경로가 제공되지 않았습니다.");
     const cleanPath = sanitizeInputPath(targetPath);
     const resolved = path.resolve(cleanPath);
-    const normTarget = resolved.toLowerCase().replace(/\\/g, '/');
+    const realResolved = getRealResolvedPath(resolved);
+    const normTarget = realResolved.toLowerCase().replace(/\\/g, '/');
     
     const isAllowed = allowedWriteDirs.some(allowedDir => {
         const normAllowed = allowedDir.endsWith('/') ? allowedDir : allowedDir + '/';
@@ -113,7 +143,7 @@ function validateWritePath(targetPath) {
     if (!isAllowed) {
         throw new Error(`[보안 제한] 파일 생성 및 쓰기는 지정된 허용 폴더 내부만 허용됩니다: "${resolved}"`);
     }
-    return resolved;
+    return realResolved;
 }
 
 module.exports = {

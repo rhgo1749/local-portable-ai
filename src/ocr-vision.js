@@ -1,7 +1,7 @@
 const path = require('path');
 const http = require('http');
 const { createWorker } = require('tesseract.js');
-const { writeDebugLog } = require('./globals');
+const { writeDebugLog, getLlamaServerHost, getLlamaServerPort } = require('./globals');
 
 const projectRoot = path.resolve(__dirname, '..');
 
@@ -113,6 +113,12 @@ async function processSingleImageBuffer(imageBuffer, identity, pageNum, isSlice 
                 const { data: { text } } = await globalOcrWorker.recognize(imageBuffer);
                 resolve(text);
             } catch (err) {
+                writeDebugLog(`[OCR 워커 충돌 감지] ${identity}: ${err.message}. 워커 종료 및 리셋 진행.`);
+                // 좀비 상태 방지: 에러 발생 시 워커 즉시 폐기 후 null로 리셋
+                if (globalOcrWorker) {
+                    try { await globalOcrWorker.terminate(); } catch (_) {}
+                    globalOcrWorker = null;
+                }
                 resolve("");
             }
         }).catch((err) => {
@@ -201,9 +207,12 @@ CRITICAL DIRECTIVES:
                 n_predict: 4096
             });
             
+            const LLM_HOST = getLlamaServerHost();
+            const LLM_PORT = getLlamaServerPort();
+
             const reqOpts = {
-                hostname: '127.0.0.1',
-                port: 8081,
+                hostname: LLM_HOST,
+                port: LLM_PORT,
                 path: '/v1/chat/completions',
                 method: 'POST',
                 headers: {

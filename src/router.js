@@ -1,29 +1,39 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
-const fs = require('fs');
+const fs = require('fs/promises');
 const crypto = require('crypto');
 const { handleMcpJsonRpc } = require('./tools-definition');
 const { patchCompletionsResponseBody } = require('./patcher');
-const { writeDebugLog } = require('./globals');
+const { writeDebugLog, getLlamaServerHost, getLlamaServerPort, getConfigPort } = require('./globals');
 
 const projectRoot = path.resolve(__dirname, '..');
 
+const LLM_HOST = getLlamaServerHost();
+const LLM_PORT = getLlamaServerPort();
+const BRIDGE_ORIGIN_DEFAULT = `http://${LLM_HOST}:${getConfigPort()}`;
+
 const defaultSettingsPath = path.join(projectRoot, 'default_settings.json');
 let defaultSettingsConfig = {};
-try {
-    defaultSettingsConfig = JSON.parse(fs.readFileSync(defaultSettingsPath, 'utf8')).config || {};
-} catch (e) {}
+
+async function loadDefaultSettings() {
+    try {
+        const raw = await fs.readFile(defaultSettingsPath, 'utf8');
+        defaultSettingsConfig = JSON.parse(raw).config || {};
+    } catch (e) {}
+}
+
+function getDefaultSettingsConfig() { return defaultSettingsConfig; }
 
 const sseClients = new Map();
 
 function setupRouter(app) {
     app.use((req, res, next) => {
         const origin = req.headers.origin;
-        if (origin && (origin.includes('127.0.0.1:8080') || origin.includes('localhost:8080'))) {
+        if (origin && (origin.includes(`${LLM_HOST}:${getConfigPort()}`) || origin.includes(`localhost:${getConfigPort()}`))) {
             res.header('Access-Control-Allow-Origin', origin);
         } else {
-            res.header('Access-Control-Allow-Origin', 'http://127.0.0.1:8080');
+            res.header('Access-Control-Allow-Origin', BRIDGE_ORIGIN_DEFAULT);
         }
         res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.header('Access-Control-Allow-Headers', 'Content-Type, mcp-protocol-version');
@@ -108,13 +118,13 @@ function setupRouter(app) {
         
         const postData = JSON.stringify(req.body);
         const options = {
-            hostname: '127.0.0.1',
-            port: 8081,
+            hostname: LLM_HOST,
+            port: LLM_PORT,
             path: '/v1/chat/completions',
             method: 'POST',
             headers: {
                 ...req.headers,
-                'host': '127.0.0.1:8081',
+                'host': `${LLM_HOST}:${LLM_PORT}`,
                 'content-length': Buffer.byteLength(postData)
             }
         };
@@ -152,8 +162,8 @@ function setupRouter(app) {
     app.post(/(.*)/, (req, res, next) => {
         if (req.path.startsWith('/mcp') || req.path.startsWith('/sse')) return next();
         
-        const options = { hostname: '127.0.0.1', port: 8081, path: req.url, method: 'POST', headers: { ...req.headers } };
-        options.headers['host'] = '127.0.0.1:8081';
+        const options = { hostname: LLM_HOST, port: LLM_PORT, path: req.url, method: 'POST', headers: { ...req.headers } };
+        options.headers['host'] = `${LLM_HOST}:${LLM_PORT}`;
         const proxyReq = http.request(options, (proxyRes) => {
             res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
             proxyRes.pipe(res, { end: true });
@@ -168,8 +178,8 @@ function setupRouter(app) {
             return next();
         }
 
-        const options = { hostname: '127.0.0.1', port: 8081, path: req.url, method: req.method, headers: { ...req.headers } };
-        options.headers['host'] = '127.0.0.1:8081';
+        const options = { hostname: LLM_HOST, port: LLM_PORT, path: req.url, method: req.method, headers: { ...req.headers } };
+        options.headers['host'] = `${LLM_HOST}:${LLM_PORT}`;
         delete options.headers['accept-encoding'];
         
         const proxyReq = http.request(options, (proxyRes) => {
@@ -217,5 +227,7 @@ function setupRouter(app) {
 }
 
 module.exports = {
-    setupRouter
+    setupRouter,
+    loadDefaultSettings,
+    getDefaultSettingsConfig
 };

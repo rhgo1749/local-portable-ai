@@ -1,4 +1,5 @@
-const fs = require('fs');
+const fs = require('fs/promises');
+const fssync = require('fs'); // mkdirSync 등 비동기 대체가 어려운极少数 용도로만 사용
 const path = require('path');
 const { getKordoc } = require('./kordoc-loader');
 const { validatePath, validateWritePath, sanitizeInputPath, findFilesRecursively } = require('./sandbox');
@@ -219,16 +220,17 @@ async function handleMcpJsonRpc(method, params, id) {
                     const imageExtensions = ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff'];
                     
                     if (textExtensions.includes(ext)) {
+                        const text = await fs.readFile(safePath, 'utf-8');
                         result = {
                             success: true,
                             fileType: ext.substring(1),
                             pageCount: 1,
                             metadata: { title: path.basename(safePath) },
                             isImageBased: false,
-                            markdown: `\n\n## 📄 제 1 페이지 (텍스트 문서)\n\n` + fs.readFileSync(safePath, 'utf-8')
+                            markdown: `\n\n## 📄 제 1 페이지 (텍스트 문서)\n\n` + text
                         };
                     } else if (imageExtensions.includes(ext)) {
-                        const fileBuf = fs.readFileSync(safePath);
+                        const fileBuf = await fs.readFile(safePath);
                         const resultText = await localOcrHook(fileBuf, 1, `image/${ext.substring(1)}`);
                         result = {
                             success: true,
@@ -239,7 +241,7 @@ async function handleMcpJsonRpc(method, params, id) {
                             markdown: resultText
                         };
                     } else {
-                        const fileBuf = fs.readFileSync(safePath);
+                        const fileBuf = await fs.readFile(safePath);
                         const isVisionActive = process.env.IS_VISION_MODEL && String(process.env.IS_VISION_MODEL).trim() === '1';
                         const isPdf = ext === '.pdf';
 
@@ -350,7 +352,8 @@ async function handleMcpJsonRpc(method, params, id) {
                 if (['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff'].includes(ext)) {
                     format = ext.substring(1);
                 } else {
-                    format = kd.detectFormat(toArrayBuffer(fs.readFileSync(safePath)));
+                    const buf = await fs.readFile(safePath);
+                    format = kd.detectFormat(toArrayBuffer(buf));
                 }
                 output = `${path.basename(safePath)}: ${format}`;
             } 
@@ -363,7 +366,8 @@ async function handleMcpJsonRpc(method, params, id) {
                 if (cached) {
                     output = JSON.stringify(cached, null, 2);
                 } else {
-                    const arrayBuf = toArrayBuffer(fs.readFileSync(safePath));
+                    const buf = await fs.readFile(safePath);
+                    const arrayBuf = toArrayBuffer(buf);
                     const format = kd.detectFormat(arrayBuf);
                     const res = await kd.parse(arrayBuf);
                     const resultToCache = { format, ...(res.success ? res.metadata : {}) };
@@ -390,7 +394,7 @@ async function handleMcpJsonRpc(method, params, id) {
                     if (runOcr) {
                         console.log(`[parse_pages] ⚡ 비전/OCR 모드 강제 실행: 범위: ${args.pages}...`);
                         try {
-                            const fileBuf = fs.readFileSync(safePath);
+                            const fileBuf = await fs.readFile(safePath);
                             result = await parsePdfHybrid(safePath, fileBuf, args.pages);
                         } catch (ocrErr) {
                             console.warn(`[parse_pages] ⚠️ 고해상도 OCR/비전 파싱 실패, 후순위 kordoc 고속 텍스트 추출로 폴백: ${ocrErr.message}`);
@@ -400,7 +404,8 @@ async function handleMcpJsonRpc(method, params, id) {
                     
                     if (!runOcr) {
                         console.log(`[parse_pages] 📄 Pass 1 (후순위/텍스트 추출): 범위: ${args.pages}...`);
-                        const parseResult = await kd.parse(toArrayBuffer(fs.readFileSync(safePath)), { pages: args.pages });
+                        const buf = await fs.readFile(safePath);
+                        const parseResult = await kd.parse(toArrayBuffer(buf), { pages: args.pages });
                         if (!parseResult.success) throw new Error(parseResult.error);
                         result = parseResult;
                     }
@@ -414,7 +419,8 @@ async function handleMcpJsonRpc(method, params, id) {
                 if (!filePath) throw new Error("file_path parameter is required.");
                 const tableIndex = parseInt(args.table_index !== undefined ? args.table_index : 0, 10);
                 const safePath = validatePath(filePath, true);
-                const result = await kd.parse(toArrayBuffer(fs.readFileSync(safePath)));
+                const buf = await fs.readFile(safePath);
+                const result = await kd.parse(toArrayBuffer(buf));
                 if (!result.success) throw new Error(result.error);
                 
                 const tableBlocks = result.blocks.filter(b => b.type === "table" && b.table);
@@ -425,7 +431,9 @@ async function handleMcpJsonRpc(method, params, id) {
             } 
             else if (name === 'compare_documents') {
                 if (!filePathA || !filePathB) throw new Error("Both path parameters are required.");
-                const result = await kd.compare(fs.readFileSync(validatePath(filePathA, true)).buffer, fs.readFileSync(validatePath(filePathB, true)).buffer);
+                const bufA = await fs.readFile(validatePath(filePathA, true));
+                const bufB = await fs.readFile(validatePath(filePathB, true));
+                const result = await kd.compare(bufA.buffer, bufB.buffer);
                 const lines = [`## 문서 비교 결과`, `추가: ${result.stats.added} | 삭제: ${result.stats.removed} | 변경: ${result.stats.modified}`, ""];
                 for (const d of result.diffs) {
                     const prefix = d.type === "added" ? "+" : d.type === "removed" ? "-" : d.type === "modified" ? "~" : " ";
@@ -436,7 +444,8 @@ async function handleMcpJsonRpc(method, params, id) {
             } 
             else if (name === 'parse_form') {
                 if (!filePath) throw new Error("file_path parameter is required.");
-                const result = await kd.parse(toArrayBuffer(fs.readFileSync(validatePath(filePath, true))));
+                const buf = await fs.readFile(validatePath(filePath, true));
+                const result = await kd.parse(toArrayBuffer(buf));
                 if (!result.success) throw new Error(result.error);
                 output = JSON.stringify(kd.extractFormFields(result.blocks), null, 2);
             } 
@@ -444,25 +453,26 @@ async function handleMcpJsonRpc(method, params, id) {
                 if (!filePath || !fields || !outputPath) throw new Error("Required parameters missing.");
                 const safePath = validatePath(filePath, true);
                 const safeOutputPath = validateWritePath(outputPath);
-                const arrayBuf = toArrayBuffer(fs.readFileSync(safePath));
+                const buf = await fs.readFile(safePath);
+                const arrayBuf = toArrayBuffer(buf);
                 const outputFormat = args.output_format || "hwpx-preserve";
+                
+                fssync.mkdirSync(path.dirname(safeOutputPath), { recursive: true });
                 
                 if (outputFormat === "hwpx-preserve") {
                     const hwpxResult = await kd.fillHwpx(arrayBuf, fields);
-                    fs.mkdirSync(path.dirname(safeOutputPath), { recursive: true });
-                    fs.writeFileSync(safeOutputPath, Buffer.from(hwpxResult.buffer));
+                    await fs.writeFile(safeOutputPath, Buffer.from(hwpxResult.buffer));
                     output = `HWPX 파일 저장 성공 (서식 100% 보존): ${safeOutputPath}`;
                 } else {
                     const result = await kd.parse(arrayBuf);
                     if (!result.success) throw new Error(result.error);
                     const fillResult = kd.fillFormFields(result.blocks, fields);
                     const markdown = kd.blocksToMarkdown(fillResult.blocks);
-                    fs.mkdirSync(path.dirname(safeOutputPath), { recursive: true });
-                    
+
                     if (outputFormat === "hwpx") {
-                        fs.writeFileSync(safeOutputPath, Buffer.from(await kd.markdownToHwpx(markdown)));
+                        await fs.writeFile(safeOutputPath, Buffer.from(await kd.markdownToHwpx(markdown)));
                     } else {
-                        fs.writeFileSync(safeOutputPath, markdown, "utf-8");
+                        await fs.writeFile(safeOutputPath, markdown, "utf-8");
                     }
                     output = `서식 매핑 성공 및 파일 저장 완료: ${safeOutputPath}`;
                 }
@@ -475,7 +485,8 @@ async function handleMcpJsonRpc(method, params, id) {
                 if (mdContent && ((mdContent.includes('trth/thth') || mdContent.includes('trtd')) && !mdContent.includes('<table>'))) {
                     if (lastParsedMarkdown) mdContent = lastParsedMarkdown;
                 } else if (args.markdown_path) {
-                    mdContent = fs.readFileSync(validatePath(args.markdown_path, true), 'utf-8');
+                    const buf = await fs.readFile(validatePath(args.markdown_path, true), 'utf-8');
+                    mdContent = buf.toString();
                 }
                 
                 const buildOptions = {};
@@ -483,8 +494,8 @@ async function handleMcpJsonRpc(method, params, id) {
                 if (args.line_spacing !== undefined) buildOptions.lineSpacing = parseInt(args.line_spacing, 10);
                 
                 const buffer = await kd.markdownToHwpx(mdContent, buildOptions);
-                fs.mkdirSync(path.dirname(safeOutputPath), { recursive: true });
-                fs.writeFileSync(safeOutputPath, Buffer.from(buffer));
+                fssync.mkdirSync(path.dirname(safeOutputPath), { recursive: true });
+                await fs.writeFile(safeOutputPath, Buffer.from(buffer));
                 output = `HWPX 한글 문서 빌드 완료: ${safeOutputPath}`;
             } 
             else if (name === 'read_text_file' || name === 'read_file') {
@@ -493,7 +504,7 @@ async function handleMcpJsonRpc(method, params, id) {
                 if (['.xlsx', '.xls', '.docx', '.doc', '.hwp', '.hwpx', '.pdf'].includes(path.extname(safePath).toLowerCase())) {
                     throw new Error(`[오류] 바이너리 포맷은 read_file이 불가합니다. 'parse_document' 도구를 사용하세요.`);
                 }
-                let content = fs.readFileSync(safePath, 'utf8');
+                let content = (await fs.readFile(safePath, 'utf8')).toString();
                 if (args.head || args.tail) {
                     const lines = content.split(/\r?\n/);
                     if (args.head) content = lines.slice(0, parseInt(args.head, 10)).join('\n');
@@ -504,29 +515,34 @@ async function handleMcpJsonRpc(method, params, id) {
             else if (name === 'write_file') {
                 if (!filePath || args.content === undefined) throw new Error("Parameters required.");
                 const safePath = validateWritePath(filePath);
-                fs.mkdirSync(path.dirname(safePath), { recursive: true });
-                fs.writeFileSync(safePath, args.content, 'utf8');
+                fssync.mkdirSync(path.dirname(safePath), { recursive: true });
+                await fs.writeFile(safePath, args.content, 'utf8');
                 output = "Success";
             } 
             else if (name === 'list_directory') {
                 const safePath = validatePath(filePath || '작업공간', true);
-                output = fs.readdirSync(safePath).join('\n');
+                const entries = await fs.readdir(safePath);
+                output = entries.join('\n');
             } 
             else if (name === 'list_directory_with_sizes') {
                 const safePath = validatePath(filePath || '작업공간', true);
-                const details = fs.readdirSync(safePath).map(file => {
+                const entries = await fs.readdir(safePath);
+                const details = [];
+                for (const file of entries) {
                     try {
-                        const stat = fs.statSync(path.join(safePath, file));
-                        return { name: file, size: stat.size, isDirectory: stat.isDirectory() };
-                    } catch(e) { return { name: file, size: 0, isDirectory: false }; }
-                });
+                        const stat = await fs.stat(path.join(safePath, file));
+                        details.push({ name: file, size: stat.size, isDirectory: stat.isDirectory() });
+                    } catch(e) { 
+                        details.push({ name: file, size: 0, isDirectory: false }); 
+                    }
+                }
                 if (args.sortBy === 'size') details.sort((a, b) => b.size - a.size);
                 else details.sort((a, b) => a.name.localeCompare(b.name));
                 output = details.map(d => `${d.isDirectory ? '[DIR]' : '[FILE]'} ${d.name} (${d.size.toLocaleString()} bytes)`).join('\n');
             } 
             else if (name === 'get_file_info') {
                 if (!filePath) throw new Error("path parameter is required.");
-                const stat = fs.statSync(validatePath(filePath, true));
+                const stat = await fs.stat(validatePath(filePath, true));
                 output = JSON.stringify({ size: stat.size, isDirectory: stat.isDirectory(), modifiedAt: stat.mtime }, null, 2);
             } 
             else if (name === 'search_file') {

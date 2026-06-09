@@ -42,6 +42,14 @@ function writeDebugLog(message) {
     } catch (e) {}
 }
 
+// 🔧 [환경 변수 기반 포트 설정 - 하드코딩 제거]
+function getConfigPort() { return parseInt(process.env.BRIDGE_PORT || '8080', 10); }
+function getLlamaServerHost() { return process.env.LLM_SERVER_HOST || '127.0.0.1'; }
+function getLlamaServerPort() { return parseInt(process.env.LLM_SERVER_PORT || '8081', 10); }
+
 module.exports = {
-    writeDebugLog
+    writeDebugLog,
+    getConfigPort,
+    getLlamaServerHost,
+    getLlamaServerPort
 };

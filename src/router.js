@@ -179,17 +179,56 @@ function setupRouter(app) {
                         if (!isNaN(ctxNum)) targetConfig.n_ctx = ctxNum;
                     }
                     if (process.env.IS_VISION_MODEL && String(process.env.IS_VISION_MODEL).trim() === '0') {
-                        targetConfig.systemMessage = targetConfig.systemMessage.replace("You are also equipped with multimodal vision capabilities...", "You are a text-only assistant...");
+                        if (targetConfig.systemMessage) {
+                            targetConfig.systemMessage = targetConfig.systemMessage
+                                .replace("You are also equipped with multimodal vision capabilities...", "You are a text-only assistant...")
+                                .replace("You have multimodal vision capabilities.", "You are a text-only assistant.");
+                        }
                     }
                     const scriptToInject = `<script>
                     (function() {
                         try {
-                            var updated = false; var def = ${JSON.stringify(targetConfig)}; var defStr = JSON.stringify(def);
-                            var keys = ['settings', 'LlamaCppWebui.config'];
-                            for (var i=0; i<keys.length; i++) {
-                                if (localStorage.getItem(keys[i]) !== defStr) { localStorage.setItem(keys[i], defStr); updated = true; }
+                            var def = ${JSON.stringify(targetConfig)};
+                            var configKey = "LlamaUi.config";
+                            var overridesKey = "LlamaUi.userOverrides";
+                            
+                            var configObj = {};
+                            var existingConfig = localStorage.getItem(configKey);
+                            if (existingConfig) {
+                                try {
+                                    configObj = JSON.parse(existingConfig);
+                                } catch(e) {}
                             }
-                            if (updated) window.location.reload();
+                            
+                            var overridesArr = [];
+                            var existingOverrides = localStorage.getItem(overridesKey);
+                            if (existingOverrides) {
+                                try {
+                                    overridesArr = JSON.parse(existingOverrides);
+                                } catch(e) {}
+                            }
+                            var overridesSet = new Set(overridesArr);
+                            
+                            var updated = false;
+                            for (var k in def) {
+                                if (!overridesSet.has(k)) {
+                                    var valStr = typeof def[k] === 'object' ? JSON.stringify(def[k]) : String(def[k]);
+                                    var currentValStr = configObj[k] !== undefined ? (typeof configObj[k] === 'object' ? JSON.stringify(configObj[k]) : String(configObj[k])) : null;
+                                    if (currentValStr !== valStr) {
+                                        configObj[k] = def[k];
+                                        updated = true;
+                                    }
+                                }
+                            }
+                            
+                            if (updated) {
+                                localStorage.setItem(configKey, JSON.stringify(configObj));
+                                // Clean up old keys from previous implementations
+                                localStorage.removeItem('settings');
+                                localStorage.removeItem('mcpServers');
+                                localStorage.removeItem('apiKey');
+                                window.location.reload();
+                            }
                         } catch(e) {}
                     })();
                     </script>`;

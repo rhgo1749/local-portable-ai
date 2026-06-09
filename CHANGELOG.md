@@ -17,6 +17,22 @@
 - 심볼릭 링크 우회 취약점 패치
 - pdfjs-dist 문서 객체 메모리 해제 누락 수정
 
+## [0.4.2] - 2026-06-09
+
+### Fixed
+
+- **Svelte WebUI 설정 주입 버그 해결 (LlamaUi.config 대상 주입):** 최신 CPU 버전의 `llama.cpp` 내장 Svelte WebUI가 설정을 개별 localStorage 키가 아닌 단일 `LlamaUi.config` 직렬화 JSON 키에서 관리하는 방식을 포착하여 설정 주입 방식을 전면 개편.
+  - 사용자가 수정한 설정을 추적하는 `LlamaUi.userOverrides`를 분석하여 사용자가 커스텀한 설정은 덮어쓰지 않고 보존.
+  - 초기 기동 시 `default_settings.json`에 정의된 시스템 프롬프트(MCP 도구 지침 포함) 및 MCP 서버 연동 설정이 WebUI 화면에 안정적으로 강제 반영되도록 연동 완료.
+  - 이전 구현의 잔재인 불필요한 레거시 localStorage 키(`settings`, `mcpServers` 등) 자동 제거 로직 추가.
+
+- **`run_server.bat` 무한 브라우저 탭 실행 및 접속 지연 버그 수정:**
+  - 백엔드 서버(8081 포트)가 완전히 준비되었는지 LISTENING 상태를 먼저 폴링하여 1회만 브라우저를 백그라운드로 띄우도록 `:PORT_CHECK` 대기열 구조 개선.
+  - 배치 파일의 한국어 인코딩 바이트 오프셋이 `cmd.exe` 내부 버퍼 경계(1024/4096 바이트)에 걸려 명령어 파싱 오류가 나던 버그(`'해' is not recognized`)를 주석 패딩으로 위치를 변동시켜 우회 조치.
+
+---
+
+
 ## [0.4.1] - 2026-06-07
 
 ### Fixed

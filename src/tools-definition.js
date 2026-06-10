@@ -353,7 +353,14 @@ async function handleMcpJsonRpc(method, params, id) {
                     format = ext.substring(1);
                 } else {
                     const buf = await fs.readFile(safePath);
-                    format = kd.detectFormat(toArrayBuffer(buf));
+                    const arrayBuf = toArrayBuffer(buf);
+                    format = kd.detectFormat(arrayBuf);
+                    if (format === 'hwpx') {
+                        const zipFormat = await kd.detectZipFormat(arrayBuf);
+                        if (zipFormat && zipFormat !== 'unknown') {
+                            format = zipFormat;
+                        }
+                    }
                 }
                 output = `${path.basename(safePath)}: ${format}`;
             } 
@@ -368,13 +375,19 @@ async function handleMcpJsonRpc(method, params, id) {
                 } else {
                     const buf = await fs.readFile(safePath);
                     const arrayBuf = toArrayBuffer(buf);
-                    const format = kd.detectFormat(arrayBuf);
+                    let format = kd.detectFormat(arrayBuf);
+                    if (format === 'hwpx') {
+                        const zipFormat = await kd.detectZipFormat(arrayBuf);
+                        if (zipFormat && zipFormat !== 'unknown') {
+                            format = zipFormat;
+                        }
+                    }
                     const res = await kd.parse(arrayBuf);
                     const resultToCache = { format, ...(res.success ? res.metadata : {}) };
                     saveCacheResult(cacheKey, resultToCache);
                     output = JSON.stringify(resultToCache, null, 2);
                 }
-            } 
+            } 	
             else if (name === 'parse_pages') {
                 if (!filePath || !args.pages) throw new Error("file_path and pages parameters are required.");
                 const safePath = validatePath(filePath, true);

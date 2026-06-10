@@ -329,6 +329,16 @@ function setupRouter(app) {
                                 }
                             }
                             
+                            if (def["mcpServers"]) {
+                                var targetMcp = def["mcpServers"];
+                                var currentMcpStr = typeof configObj["mcpServers"] === 'object' ? JSON.stringify(configObj["mcpServers"]) : String(configObj["mcpServers"] || '');
+                                var targetMcpStr = typeof targetMcp === 'object' ? JSON.stringify(targetMcp) : String(targetMcp);
+                                if (currentMcpStr !== targetMcpStr) {
+                                    configObj["mcpServers"] = targetMcp;
+                                    updated = true;
+                                }
+                            }
+                            
                             if (updated) {
                                 localStorage.setItem(configKey, JSON.stringify(configObj));
                                 // Clean up old keys from previous implementations

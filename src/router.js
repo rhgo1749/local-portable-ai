@@ -15,11 +15,14 @@ const BRIDGE_ORIGIN_DEFAULT = `http://${LLM_HOST}:${getConfigPort()}`;
 
 const defaultSettingsPath = path.join(projectRoot, 'default_settings.json');
 let defaultSettingsConfig = {};
+let allowedUserOverrides = [];
 
 async function loadDefaultSettings() {
     try {
         const raw = await fs.readFile(defaultSettingsPath, 'utf8');
-        defaultSettingsConfig = JSON.parse(raw).config || {};
+        const parsed = JSON.parse(raw);
+        defaultSettingsConfig = parsed.config || {};
+        allowedUserOverrides = parsed.userOverrides || [];
     } catch (e) {}
 }
 
@@ -309,6 +312,8 @@ function setupRouter(app) {
                     (function() {
                         try {
                             var def = ${JSON.stringify(targetConfig)};
+                            var allowedOverrides = ${JSON.stringify(allowedUserOverrides)};
+                            var allowedOverridesSet = new Set(allowedOverrides);
                             var configKey = "LlamaUi.config";
                             var overridesKey = "LlamaUi.userOverrides";
                             
@@ -331,7 +336,7 @@ function setupRouter(app) {
                             
                             var updated = false;
                             for (var k in def) {
-                                if (!overridesSet.has(k)) {
+                                if (!allowedOverridesSet.has(k) || !overridesSet.has(k)) {
                                     var valStr = typeof def[k] === 'object' ? JSON.stringify(def[k]) : String(def[k]);
                                     var currentValStr = configObj[k] !== undefined ? (typeof configObj[k] === 'object' ? JSON.stringify(configObj[k]) : String(configObj[k])) : null;
                                     if (currentValStr !== valStr) {

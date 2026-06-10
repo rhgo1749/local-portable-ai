@@ -302,50 +302,6 @@ async function handleMcpJsonRpc(method, params, id) {
                 lastParsedMarkdown = result.markdown;
                 output = parts.join("");
             } 
-            else if (name === 'detect_format') {
-                if (!filePath) throw new Error("file_path parameter is required.");
-                const safePath = validatePath(filePath, true);
-                const ext = path.extname(safePath).toLowerCase();
-                let format = 'unknown';
-                if (['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.tiff'].includes(ext)) {
-                    format = ext.substring(1);
-                } else {
-                    const buf = await fs.readFile(safePath);
-                    const arrayBuf = toArrayBuffer(buf);
-                    format = kd.detectFormat(arrayBuf);
-                    if (format === 'hwpx') {
-                        const zipFormat = await kd.detectZipFormat(arrayBuf);
-                        if (zipFormat && zipFormat !== 'unknown') {
-                            format = zipFormat;
-                        }
-                    }
-                }
-                output = `${path.basename(safePath)}: ${format}`;
-            } 
-            else if (name === 'parse_metadata') {
-                if (!filePath) throw new Error("file_path parameter is required.");
-                const safePath = validatePath(filePath, true);
-                const cacheKey = getCacheKey(safePath, 'parse_metadata');
-                const cached = getCachedResult(cacheKey);
-                
-                if (cached) {
-                    output = JSON.stringify(cached, null, 2);
-                } else {
-                    const buf = await fs.readFile(safePath);
-                    const arrayBuf = toArrayBuffer(buf);
-                    let format = kd.detectFormat(arrayBuf);
-                    if (format === 'hwpx') {
-                        const zipFormat = await kd.detectZipFormat(arrayBuf);
-                        if (zipFormat && zipFormat !== 'unknown') {
-                            format = zipFormat;
-                        }
-                    }
-                    const res = await kd.parse(arrayBuf);
-                    const resultToCache = { format, ...(res.success ? res.metadata : {}) };
-                    saveCacheResult(cacheKey, resultToCache);
-                    output = JSON.stringify(resultToCache, null, 2);
-                }
-            } 	
             else if (name === 'parse_pages') {
                 if (!filePath || !args.pages) throw new Error("file_path and pages parameters are required.");
                 const safePath = validatePath(filePath, true);
@@ -412,13 +368,6 @@ async function handleMcpJsonRpc(method, params, id) {
                     lines.push(`${prefix} ${text.substring(0, 200)}`);
                 }
                 output = lines.join("\n");
-            } 
-            else if (name === 'parse_form') {
-                if (!filePath) throw new Error("file_path parameter is required.");
-                const buf = await fs.readFile(validatePath(filePath, true));
-                const result = await kd.parse(toArrayBuffer(buf));
-                if (!result.success) throw new Error(result.error);
-                output = JSON.stringify(kd.extractFormFields(result.blocks), null, 2);
             } 
             else if (name === 'fill_form') {
                 if (!filePath || !fields || !outputPath) throw new Error("Required parameters missing.");
@@ -509,23 +458,6 @@ async function handleMcpJsonRpc(method, params, id) {
                 } else {
                     output = entries.join('\n');
                 }
-            } 
-            else if (name === 'list_directory_with_sizes') {
-                // Backward compatibility just in case
-                const safePath = validatePath(filePath || '작업공간', true);
-                const entries = await fs.readdir(safePath);
-                const details = [];
-                for (const file of entries) {
-                    try {
-                        const stat = await fs.stat(path.join(safePath, file));
-                        details.push({ name: file, size: stat.size, isDirectory: stat.isDirectory() });
-                    } catch(e) { 
-                        details.push({ name: file, size: 0, isDirectory: false }); 
-                    }
-                }
-                if (args.sortBy === 'size') details.sort((a, b) => b.size - a.size);
-                else details.sort((a, b) => a.name.localeCompare(b.name));
-                output = details.map(d => `${d.isDirectory ? '[DIR]' : '[FILE]'} ${d.name} (${d.size.toLocaleString()} bytes)`).join('\n');
             } 
             else if (name === 'get_file_info') {
                 if (!filePath) throw new Error("path parameter is required.");

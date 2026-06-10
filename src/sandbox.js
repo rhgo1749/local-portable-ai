@@ -8,7 +8,13 @@ const allowedDirs = [
     path.resolve(path.join(projectRoot, '작업공간')),
     path.resolve(path.join(process.cwd(), '작업공간'))  
 ].map(dir => {
-    let norm = path.resolve(dir).toLowerCase().replace(/\\/g, '/');
+    let realDir = dir;
+    try {
+        if (fs.existsSync(dir)) {
+            realDir = fs.realpathSync(dir);
+        }
+    } catch (e) {}
+    let norm = path.resolve(realDir).normalize('NFC').toLowerCase().replace(/\\/g, '/');
     if (!norm.endsWith('/')) norm += '/';
     return norm;
 });
@@ -26,8 +32,31 @@ function sanitizeInputPath(rawPath) {
     return clean;
 }
 
+function getRealResolvedPath(resolved) {
+    let realResolved = resolved;
+    try {
+        if (fs.existsSync(resolved)) {
+            realResolved = fs.realpathSync(resolved);
+        } else {
+            let dir = path.dirname(resolved);
+            while (dir && dir !== path.dirname(dir)) {
+                if (fs.existsSync(dir)) {
+                    const realDir = fs.realpathSync(dir);
+                    realResolved = path.join(realDir, path.relative(dir, resolved));
+                    break;
+                }
+                dir = path.dirname(dir);
+            }
+        }
+    } catch (e) {
+        // fallback
+    }
+    return realResolved;
+}
+
 function findFilesRecursively(dir, fileNameQuery, results = []) {
     try {
+        const normalizedQuery = (fileNameQuery || '').normalize('NFC').toLowerCase();
         const files = fs.readdirSync(dir);
         for (const file of files) {
             const fullPath = path.join(dir, file);
@@ -39,13 +68,16 @@ function findFilesRecursively(dir, fileNameQuery, results = []) {
                 if (lowerFile !== 'node_modules' && lowerFile !== '.git' && lowerFile !== '.mcp_cache') {
                     findFilesRecursively(fullPath, fileNameQuery, results);
                 }
-            } else if (file.toLowerCase().includes(fileNameQuery.toLowerCase())) {
-                const relative = path.relative(projectRoot, fullPath).replace(/\\/g, '/');
-                results.push({
-                    name: file,
-                    path: relative.startsWith('.') ? relative : './' + relative,
-                    size: stat.size
-                });
+            } else {
+                const normalizedFile = file.normalize('NFC').toLowerCase();
+                if (normalizedFile.includes(normalizedQuery)) {
+                    const relative = path.relative(projectRoot, fullPath).replace(/\\/g, '/');
+                    results.push({
+                        name: file,
+                        path: relative.startsWith('.') ? relative : './' + relative,
+                        size: stat.size
+                    });
+                }
             }
         }
     } catch (e) {}
@@ -57,12 +89,29 @@ function validatePath(targetPath, checkExists = false) {
     const cleanPath = sanitizeInputPath(targetPath);
     let resolved = path.resolve(cleanPath);
     
+    const checkAllowed = (p) => {
+        const norm = getRealResolvedPath(p).normalize('NFC').toLowerCase().replace(/\\/g, '/');
+        return allowedDirs.some(allowedDir => {
+            const normAllowed = allowedDir.endsWith('/') ? allowedDir : allowedDir + '/';
+            const normTargetWithSlash = norm.endsWith('/') ? norm : norm + '/';
+            return normTargetWithSlash.startsWith(normAllowed);
+        });
+    };
+    
+    if (!checkAllowed(resolved)) {
+        const fallback = path.resolve(path.join(projectRoot, '작업공간', cleanPath));
+        if (checkAllowed(fallback)) {
+            resolved = fallback;
+        }
+    }
+    
     if (checkExists && !fs.existsSync(resolved)) {
         const baseName = path.basename(resolved);
         if (baseName) {
             console.log(`[validatePath] 파일 없음: "${resolved}". 재귀 검색을 시작합니다...`);
             const foundFiles = findFilesRecursively(path.join(projectRoot, '작업공간'), baseName);
-            const exactMatches = foundFiles.filter(f => f.name.toLowerCase() === baseName.toLowerCase());
+            const normBaseName = baseName.normalize('NFC').toLowerCase();
+            const exactMatches = foundFiles.filter(f => f.name.normalize('NFC').toLowerCase() === normBaseName);
             
             if (exactMatches.length === 1) {
                 resolved = path.resolve(projectRoot, exactMatches[0].path);
@@ -70,7 +119,7 @@ function validatePath(targetPath, checkExists = false) {
             } else if (exactMatches.length > 1) {
                 throw new Error(`[파일 중복] "${baseName}"이(가) 여러 경로에 존재합니다: ${exactMatches.map(f => f.path).join(", ")}`);
             } else {
-                const partialMatches = foundFiles.filter(f => f.name.toLowerCase().includes(baseName.toLowerCase()));
+                const partialMatches = foundFiles.filter(f => f.name.normalize('NFC').toLowerCase().includes(normBaseName));
                 if (partialMatches.length === 1) {
                     resolved = path.resolve(projectRoot, partialMatches[0].path);
                     console.log(`[validatePath] 부분 일치 자동 복구 성공 -> "${resolved}"`);
@@ -81,7 +130,8 @@ function validatePath(targetPath, checkExists = false) {
         }
     }
 
-    const normTarget = resolved.toLowerCase().replace(/\\/g, '/');
+    const realResolved = getRealResolvedPath(resolved);
+    const normTarget = realResolved.normalize('NFC').toLowerCase().replace(/\\/g, '/');
     const isAllowed = allowedDirs.some(allowedDir => {
         const normAllowed = allowedDir.endsWith('/') ? allowedDir : allowedDir + '/';
         const normTargetWithSlash = normTarget.endsWith('/') ? normTarget : normTarget + '/';
@@ -91,18 +141,36 @@ function validatePath(targetPath, checkExists = false) {
     if (!isAllowed) {
         throw new Error(`[보안 제한] 경로 "${resolved}"는 허용된 디렉토리 영역 외부에 위치하므로 접근이 차단되었습니다.`);
     }
-    if (checkExists && !fs.existsSync(resolved)) {
+    if (checkExists && !fs.existsSync(realResolved)) {
         throw new Error(`[파일 없음] 존재하지 않는 경로입니다: "${resolved}"`);
     }
 
-    return resolved;
+    return realResolved;
 }
 
 function validateWritePath(targetPath) {
     if (!targetPath) throw new Error("파일 저장 경로가 제공되지 않았습니다.");
     const cleanPath = sanitizeInputPath(targetPath);
-    const resolved = path.resolve(cleanPath);
-    const normTarget = resolved.toLowerCase().replace(/\\/g, '/');
+    let resolved = path.resolve(cleanPath);
+    
+    const checkAllowed = (p) => {
+        const norm = getRealResolvedPath(p).normalize('NFC').toLowerCase().replace(/\\/g, '/');
+        return allowedWriteDirs.some(allowedDir => {
+            const normAllowed = allowedDir.endsWith('/') ? allowedDir : allowedDir + '/';
+            const normTargetWithSlash = norm.endsWith('/') ? norm : norm + '/';
+            return normTargetWithSlash.startsWith(normAllowed);
+        });
+    };
+    
+    if (!checkAllowed(resolved)) {
+        const fallback = path.resolve(path.join(projectRoot, '작업공간', cleanPath));
+        if (checkAllowed(fallback)) {
+            resolved = fallback;
+        }
+    }
+    
+    const realResolved = getRealResolvedPath(resolved);
+    const normTarget = realResolved.normalize('NFC').toLowerCase().replace(/\\/g, '/');
     
     const isAllowed = allowedWriteDirs.some(allowedDir => {
         const normAllowed = allowedDir.endsWith('/') ? allowedDir : allowedDir + '/';
@@ -113,7 +181,7 @@ function validateWritePath(targetPath) {
     if (!isAllowed) {
         throw new Error(`[보안 제한] 파일 생성 및 쓰기는 지정된 허용 폴더 내부만 허용됩니다: "${resolved}"`);
     }
-    return resolved;
+    return realResolved;
 }
 
 module.exports = {
@@ -124,3 +192,4 @@ module.exports = {
     validatePath,
     validateWritePath
 };
+

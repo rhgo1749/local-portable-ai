@@ -1,25 +1,46 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
-const fs = require('fs');
+const fs = require('fs/promises');
 const crypto = require('crypto');
 const { handleMcpJsonRpc } = require('./tools-definition');
 const { patchCompletionsResponseBody } = require('./patcher');
-const { writeDebugLog } = require('./globals');
+const { writeDebugLog, getLlamaServerHost, getLlamaServerPort, getConfigPort } = require('./globals');
 
 const projectRoot = path.resolve(__dirname, '..');
 
+const LLM_HOST = getLlamaServerHost();
+const LLM_PORT = getLlamaServerPort();
+const BRIDGE_ORIGIN_DEFAULT = `http://${LLM_HOST}:${getConfigPort()}`;
+
 const defaultSettingsPath = path.join(projectRoot, 'default_settings.json');
 let defaultSettingsConfig = {};
-try {
-    defaultSettingsConfig = JSON.parse(fs.readFileSync(defaultSettingsPath, 'utf8')).config || {};
-} catch (e) {}
+
+async function loadDefaultSettings() {
+    try {
+        const raw = await fs.readFile(defaultSettingsPath, 'utf8');
+        defaultSettingsConfig = JSON.parse(raw).config || {};
+    } catch (e) {}
+}
+
+function getDefaultSettingsConfig() { return defaultSettingsConfig; }
 
 const sseClients = new Map();
 
 function setupRouter(app) {
     app.use((req, res, next) => {
-        res.header('Access-Control-Allow-Origin', '*');
+        const origin = req.headers.origin;
+        const llmPort = getLlamaServerPort();
+        if (origin && (
+            origin.includes(`${LLM_HOST}:${getConfigPort()}`) || 
+            origin.includes(`localhost:${getConfigPort()}`) ||
+            origin.includes(`${LLM_HOST}:${llmPort}`) ||
+            origin.includes(`localhost:${llmPort}`)
+        )) {
+            res.header('Access-Control-Allow-Origin', origin);
+        } else {
+            res.header('Access-Control-Allow-Origin', BRIDGE_ORIGIN_DEFAULT);
+        }
         res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.header('Access-Control-Allow-Headers', 'Content-Type, mcp-protocol-version');
         if (req.method === 'OPTIONS') return res.sendStatus(200);
@@ -103,52 +124,151 @@ function setupRouter(app) {
         
         const postData = JSON.stringify(req.body);
         const options = {
-            hostname: '127.0.0.1',
-            port: 8081,
+            hostname: LLM_HOST,
+            port: LLM_PORT,
             path: '/v1/chat/completions',
             method: 'POST',
             headers: {
                 ...req.headers,
-                'host': '127.0.0.1:8081',
+                'host': `${LLM_HOST}:${LLM_PORT}`,
                 'content-length': Buffer.byteLength(postData)
             }
         };
         
-        const proxyReq = http.request(options, (proxyRes) => {
-            let body = '';
-            proxyRes.on('data', chunk => body += chunk);
-            proxyRes.on('end', () => {
-                writeDebugLog(`[COMPLETIONS RES] status=${proxyRes.statusCode} body=${body}`);
+        const isStream = req.body.stream === true;
+        
+        if (isStream) {
+            const proxyReq = http.request(options, (proxyRes) => {
+                res.writeHead(proxyRes.statusCode || 200, {
+                    ...proxyRes.headers,
+                    'content-type': 'text/event-stream',
+                    'cache-control': 'no-cache',
+                    'connection': 'keep-alive'
+                });
                 
-                const headers = { ...proxyRes.headers };
-                const isStream = req.body.stream === true;
-                let patchedBody = body;
+                let sseBuffer = '';
+                let accumulatedText = '';
+                let bufferedLines = [];
+                let isStreamingActive = false;
                 
-                if (proxyRes.statusCode === 200) {
-                    patchedBody = patchCompletionsResponseBody(body, isStream);
-                    if (patchedBody !== body) {
-                        writeDebugLog(`[Bridge Patch] Response body changed. Original length: ${body.length}, Patched length: ${patchedBody.length}`);
-                        if (headers['content-length'] !== undefined) {
-                            headers['content-length'] = Buffer.byteLength(patchedBody);
+                const flushBuffer = () => {
+                    if (bufferedLines.length > 0) {
+                        for (const line of bufferedLines) {
+                            res.write(line + '\n');
+                        }
+                        bufferedLines = [];
+                    }
+                };
+                
+                proxyRes.on('data', (chunk) => {
+                    sseBuffer += chunk.toString();
+                    let index;
+                    while ((index = sseBuffer.indexOf('\n')) !== -1) {
+                        const line = sseBuffer.substring(0, index);
+                        sseBuffer = sseBuffer.substring(index + 1);
+                        
+                        const trimmedLine = line.trim();
+                        
+                        if (isStreamingActive) {
+                            res.write(line + '\n');
+                        } else {
+                            bufferedLines.push(line);
+                            
+                            if (trimmedLine.startsWith('data: ') && trimmedLine !== 'data: [DONE]') {
+                                try {
+                                    const parsedEvent = JSON.parse(trimmedLine.substring(6));
+                                    if (parsedEvent.choices && parsedEvent.choices[0]) {
+                                        const delta = parsedEvent.choices[0].delta;
+                                        if (delta) {
+                                            if (delta.content) {
+                                                accumulatedText += delta.content;
+                                            }
+                                            if (delta.tool_calls) {
+                                                isStreamingActive = true;
+                                                flushBuffer();
+                                            }
+                                        }
+                                    }
+                                } catch (e) {}
+                            }
+                            
+                            const trimmedText = accumulatedText.trim();
+                            if (trimmedText.length > 0) {
+                                const startsWithToolChar = trimmedText.startsWith('[') || 
+                                                           trimmedText.startsWith('{') || 
+                                                           trimmedText.startsWith('`');
+                                
+                                if (!startsWithToolChar || accumulatedText.length > 50000) {
+                                    isStreamingActive = true;
+                                    flushBuffer();
+                                }
+                            }
                         }
                     }
-                }
+                });
                 
-                res.writeHead(proxyRes.statusCode || 200, headers);
-                res.end(patchedBody);
+                proxyRes.on('end', () => {
+                    if (sseBuffer.length > 0) {
+                        if (isStreamingActive) {
+                            res.write(sseBuffer + '\n');
+                        } else {
+                            bufferedLines.push(sseBuffer);
+                        }
+                    }
+                    
+                    if (!isStreamingActive) {
+                        const completeBody = bufferedLines.join('\n');
+                        const patchedBody = patchCompletionsResponseBody(completeBody, true);
+                        res.write(patchedBody);
+                    }
+                    res.end();
+                });
             });
-        });
-        proxyReq.on('error', () => res.sendStatus(502));
-        proxyReq.write(postData);
-        proxyReq.end();
+            proxyReq.on('error', (err) => {
+                writeDebugLog(`[COMPLETIONS ERR (Stream)] ${err.stack || err.message}`);
+                res.sendStatus(502);
+            });
+            proxyReq.write(postData);
+            proxyReq.end();
+        } else {
+            const proxyReq = http.request(options, (proxyRes) => {
+                let body = '';
+                proxyRes.on('data', chunk => body += chunk);
+                proxyRes.on('end', () => {
+                    writeDebugLog(`[COMPLETIONS RES] status=${proxyRes.statusCode} body=${body}`);
+                    
+                    const headers = { ...proxyRes.headers };
+                    let patchedBody = body;
+                    
+                    if (proxyRes.statusCode === 200) {
+                        patchedBody = patchCompletionsResponseBody(body, false);
+                        if (patchedBody !== body) {
+                            writeDebugLog(`[Bridge Patch] Response body changed. Original length: ${body.length}, Patched length: ${patchedBody.length}`);
+                            if (headers['content-length'] !== undefined) {
+                                headers['content-length'] = Buffer.byteLength(patchedBody);
+                            }
+                        }
+                    }
+                    
+                    res.writeHead(proxyRes.statusCode || 200, headers);
+                    res.end(patchedBody);
+                });
+            });
+            proxyReq.on('error', (err) => {
+                writeDebugLog(`[COMPLETIONS ERR (Non-Stream)] ${err.stack || err.message}`);
+                res.sendStatus(502);
+            });
+            proxyReq.write(postData);
+            proxyReq.end();
+        }
     });
 
     // POST proxy fallback
     app.post(/(.*)/, (req, res, next) => {
         if (req.path.startsWith('/mcp') || req.path.startsWith('/sse')) return next();
         
-        const options = { hostname: '127.0.0.1', port: 8081, path: req.url, method: 'POST', headers: { ...req.headers } };
-        options.headers['host'] = '127.0.0.1:8081';
+        const options = { hostname: LLM_HOST, port: LLM_PORT, path: req.url, method: 'POST', headers: { ...req.headers } };
+        options.headers['host'] = `${LLM_HOST}:${LLM_PORT}`;
         const proxyReq = http.request(options, (proxyRes) => {
             res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
             proxyRes.pipe(res, { end: true });
@@ -163,8 +283,8 @@ function setupRouter(app) {
             return next();
         }
 
-        const options = { hostname: '127.0.0.1', port: 8081, path: req.url, method: req.method, headers: { ...req.headers } };
-        options.headers['host'] = '127.0.0.1:8081';
+        const options = { hostname: LLM_HOST, port: LLM_PORT, path: req.url, method: req.method, headers: { ...req.headers } };
+        options.headers['host'] = `${LLM_HOST}:${LLM_PORT}`;
         delete options.headers['accept-encoding'];
         
         const proxyReq = http.request(options, (proxyRes) => {
@@ -185,6 +305,12 @@ function setupRouter(app) {
                                 .replace("You have multimodal vision capabilities.", "You are a text-only assistant.");
                         }
                     }
+                    if (targetConfig.mcpServers && typeof targetConfig.mcpServers === 'string') {
+                        try {
+                            targetConfig.mcpServers = JSON.parse(targetConfig.mcpServers);
+                        } catch(e) {}
+                    }
+                    
                     const scriptToInject = `<script>
                     (function() {
                         try {
@@ -211,18 +337,26 @@ function setupRouter(app) {
                             
                             var updated = false;
                             for (var k in def) {
-                                if (!overridesSet.has(k)) {
-                                    var valStr = typeof def[k] === 'object' ? JSON.stringify(def[k]) : String(def[k]);
-                                    var currentValStr = configObj[k] !== undefined ? (typeof configObj[k] === 'object' ? JSON.stringify(configObj[k]) : String(configObj[k])) : null;
-                                    if (currentValStr !== valStr) {
-                                        configObj[k] = def[k];
-                                        updated = true;
-                                    }
+                                var valStr = typeof def[k] === 'object' ? JSON.stringify(def[k]) : String(def[k]);
+                                var currentValStr = configObj[k] !== undefined ? (typeof configObj[k] === 'object' ? JSON.stringify(configObj[k]) : String(configObj[k])) : null;
+                                if (currentValStr !== valStr) {
+                                    configObj[k] = def[k];
+                                    updated = true;
                                 }
                             }
                             
-                            if (updated) {
+                            var overridesUpdated = false;
+                            for (var k in def) {
+                                if (!overridesSet.has(k)) {
+                                    overridesArr.push(k);
+                                    overridesSet.add(k);
+                                    overridesUpdated = true;
+                                }
+                            }
+                            
+                            if (updated || overridesUpdated) {
                                 localStorage.setItem(configKey, JSON.stringify(configObj));
+                                localStorage.setItem(overridesKey, JSON.stringify(overridesArr));
                                 // Clean up old keys from previous implementations
                                 localStorage.removeItem('settings');
                                 localStorage.removeItem('mcpServers');
@@ -233,7 +367,15 @@ function setupRouter(app) {
                     })();
                     </script>`;
                     const modifiedBody = body.indexOf('</head>') !== -1 ? body.replace('</head>', scriptToInject + '</head>') : scriptToInject + body;
-                    Object.keys(proxyRes.headers).forEach(k => { if(k.toLowerCase() !== 'content-length') res.setHeader(k, proxyRes.headers[k]); });
+                    Object.keys(proxyRes.headers).forEach(k => { 
+                        const lowerK = k.toLowerCase();
+                        if (lowerK !== 'content-length' && lowerK !== 'cache-control' && lowerK !== 'pragma' && lowerK !== 'expires' && lowerK !== 'etag') {
+                            res.setHeader(k, proxyRes.headers[k]); 
+                        }
+                    });
+                    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+                    res.setHeader('Pragma', 'no-cache');
+                    res.setHeader('Expires', '0');
                     res.setHeader('Content-Length', Buffer.byteLength(modifiedBody));
                     res.writeHead(proxyRes.statusCode || 200).end(modifiedBody);
                 });
@@ -251,5 +393,7 @@ function setupRouter(app) {
 }
 
 module.exports = {
-    setupRouter
+    setupRouter,
+    loadDefaultSettings,
+    getDefaultSettingsConfig
 };

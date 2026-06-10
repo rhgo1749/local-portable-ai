@@ -1,6 +1,34 @@
 # CHANGELOG
 
-## [0.5.0] - 2026-06-09
+## [0.6v] - 2026-06-10
+
+### Added
+- **NFC/NFD 한글 파일명 정규화**: macOS 등 타 OS 환경에서 생성된 자소분리(NFD) 형식의 한글 파일명이 Windows 환경의 보안 샌드박스 내부에서 충돌 없이 검색 및 로드될 수 있도록 항상 NFC 형식으로 표준화하는 정규화 기능 추가.
+- **도구 인자 명세 자동 정규화 (Parameter Key Normalization)**: 모델이 MCP 스키마와 어긋나는 매개변수명(`filePath` ↔ `path`, `content` ↔ `data` 등)을 사용하여 도구 호출을 시도하더라도, 스키마 명세를 기반으로 변수명을 강제 매핑/보정하여 Svelte WebUI의 클라이언트 측 스키마 검증기 오류를 예방.
+
+### Changed
+- **비규격 JSON 도구 호출 포맷 자동 보정**: 모델이 `tool_name` 대신 `tool_call`이나 `tool` 키를 사용하거나, `parameters` 없이 평탄(Flat)하게 제공하는 JSON 패턴(예: `{ "tool_call": "write_file", "file_path": "...", "content": "..." }`)을 자동으로 포착하여 표준 MCP 객체 구조로 완벽히 가공 및 변환.
+- **문서 비교 (`compare_documents`) 결과 가독성 개편**: 변경 내용이 없는 본문이나 테이블(`[테이블]`) 등 노이즈 항목을 출력 목록에서 생략하고, 변경된 요소들의 변경 전후 상태(`~ [변경] "이전" -> "이후"`)와 신규/삭제 상태를 직관적으로 추적할 수 있도록 Diff 출력 방식을 전면 개편.
+- **Completion 스트리밍 미완성 버퍼 임계값 최적화**: 대형 마크다운 테이블이나 JSON 블록이 수신 도중 잘려서 도구 호출 보정이 생략되는 상황을 방지하고자 Completions API 스트리밍 임계 임시 버퍼 크기를 상향 조정.
+
+## [0.5] - 2026-06-08
+
+### Added
+- express 의존성 명시적 추가 (package.json 누락 보완)
+
+### Changed
+- mcp-bridge.js를 src/ 하위 9개 모듈로 분할 (모듈화 아키텍처 도입)
+- 시스템 감지 로직에서 PowerShell 의존성 제거 — wmic→systeminfo 폴백 방식으로 전환
+- CORS 정책과 샌드박스 검증 강화
+- 캐시 정리 프로세스 비동기화 (서버 기동 시간 단축)
+
+### Fixed
+- Tesseract Worker 종료 시 메모리/프로세스 누수 문제 해결
+- Unhandled Promise Rejection 방지 (visionQueue/tesseractQueue 체인 연결)
+- 심볼릭 링크 우회 취약점 패치
+- pdfjs-dist 문서 객체 메모리 해제 누락 수정
+
+## [0.4.2] - 2026-06-09
 
 ### Fixed
 
@@ -14,6 +42,7 @@
   - 배치 파일의 한국어 인코딩 바이트 오프셋이 `cmd.exe` 내부 버퍼 경계(1024/4096 바이트)에 걸려 명령어 파싱 오류가 나던 버그(`'해' is not recognized`)를 주석 패딩으로 위치를 변동시켜 우회 조치.
 
 ---
+
 
 ## [0.4.1] - 2026-06-07
 

@@ -1,17 +1,29 @@
 const express = require('express');
 const { writeDebugLog } = require('./src/globals');
 const { cleanCache } = require('./src/cache');
-const { setupRouter } = require('./src/router');
+const { setupRouter, loadDefaultSettings } = require('./src/router');
 
-// 📝 [Startup Debug Log]
-writeDebugLog(`MCP Bridge Started. IS_VISION_MODEL: "${process.env.IS_VISION_MODEL}"`);
+async function start() {
+    // 📝 [Startup Debug Log]
+    writeDebugLog(`MCP Bridge Started. IS_VISION_MODEL: "${process.env.IS_VISION_MODEL}"`);
 
-// 🧹 [Clean Cache]
-cleanCache();
+    // ⚙️ Load default settings asynchronously (non-blocking)
+    await loadDefaultSettings();
 
-const app = express();
+    // 🧹 [Clean Cache - async non-blocking]
+    cleanCache();
 
-// 🌐 [Routing Setup]
-setupRouter(app);
+    const app = express();
 
-app.listen(8080, '127.0.0.1', () => console.log('Official Spec MCP Bridge Ready on port 8080'));
+    // 🌐 [Routing Setup]
+    setupRouter(app);
+
+    app.listen(getConfigPort(), '127.0.0.1', () => console.log(`Official Spec MCP Bridge Ready on port ${getConfigPort()}`));
+}
+
+function getConfigPort() { return parseInt(process.env.BRIDGE_PORT || '8080', 10); }
+
+start().catch(err => {
+    writeDebugLog(`[Bridge Startup ERROR] ${err.message}`);
+    process.exit(1);
+});

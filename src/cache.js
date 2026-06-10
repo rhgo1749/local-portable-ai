@@ -43,25 +43,42 @@ function saveCacheResult(cacheKey, result) {
     }
 }
 
-function cleanCache() {
+async function cleanCache() {
     try {
         if (!fs.existsSync(CACHE_DIR)) return;
-        const files = fs.readdirSync(CACHE_DIR).map(file => {
-            const fp = path.join(CACHE_DIR, file); const st = fs.statSync(fp);
-            return { name: file, path: fp, size: st.size, mtime: st.mtime.getTime() };
-        }).filter(f => f.name.endsWith('.json'));
+        const rawFiles = await fs.promises.readdir(CACHE_DIR);
+        const fileStats = [];
+        for (const file of rawFiles) {
+            const fp = path.join(CACHE_DIR, file);
+            try {
+                const st = await fs.promises.stat(fp);
+                fileStats.push({ name: file, path: fp, size: st.size, mtime: st.mtime.getTime() });
+            } catch (e) {}
+        }
 
-        const now = Date.now(); let totalSize = 0;
-        files.forEach(f => {
-            if (now - f.mtime > 7 * 24 * 60 * 60 * 1000) { try { fs.unlinkSync(f.path); } catch(e){} } 
-            else { totalSize += f.size; }
-        });
+        const files = fileStats.filter(f => f.name.endsWith('.json'));
+        const now = Date.now();
+        let totalSize = 0;
+
+        for (const f of files) {
+            if (now - f.mtime > 7 * 24 * 60 * 60 * 1000) {
+                try {
+                    await fs.promises.unlink(f.path);
+                } catch (e) {}
+            } else {
+                totalSize += f.size;
+            }
+        }
 
         if (totalSize > 500 * 1024 * 1024) {
-            files.filter(f => fs.existsSync(f.path)).sort((a, b) => a.mtime - b.mtime).forEach(f => {
-                if (totalSize <= 500 * 1024 * 1024) return;
-                try { fs.unlinkSync(f.path); totalSize -= f.size; } catch(e){}
-            });
+            const remainingFiles = files.sort((a, b) => a.mtime - b.mtime);
+            for (const f of remainingFiles) {
+                if (totalSize <= 500 * 1024 * 1024) break;
+                try {
+                    await fs.promises.unlink(f.path);
+                    totalSize -= f.size;
+                } catch (e) {}
+            }
         }
     } catch (err) {}
 }

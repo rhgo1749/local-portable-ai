@@ -348,7 +348,15 @@ function setupRouter(app) {
                     })();
                     </script>`;
                     const modifiedBody = body.indexOf('</head>') !== -1 ? body.replace('</head>', scriptToInject + '</head>') : scriptToInject + body;
-                    Object.keys(proxyRes.headers).forEach(k => { if(k.toLowerCase() !== 'content-length') res.setHeader(k, proxyRes.headers[k]); });
+                    Object.keys(proxyRes.headers).forEach(k => { 
+                        const lowerK = k.toLowerCase();
+                        if (lowerK !== 'content-length' && lowerK !== 'cache-control' && lowerK !== 'pragma' && lowerK !== 'expires' && lowerK !== 'etag') {
+                            res.setHeader(k, proxyRes.headers[k]); 
+                        }
+                    });
+                    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+                    res.setHeader('Pragma', 'no-cache');
+                    res.setHeader('Expires', '0');
                     res.setHeader('Content-Length', Buffer.byteLength(modifiedBody));
                     res.writeHead(proxyRes.statusCode || 200).end(modifiedBody);
                 });

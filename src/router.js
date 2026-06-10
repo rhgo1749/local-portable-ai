@@ -212,8 +212,10 @@ function setupRouter(app) {
                     res.end();
                 });
             });
-            req.on('close', () => proxyReq.destroy());
-            proxyReq.on('error', () => res.sendStatus(502));
+            proxyReq.on('error', (err) => {
+                writeDebugLog(`[COMPLETIONS ERR (Stream)] ${err.stack || err.message}`);
+                res.sendStatus(502);
+            });
             proxyReq.write(postData);
             proxyReq.end();
         } else {
@@ -240,8 +242,10 @@ function setupRouter(app) {
                     res.end(patchedBody);
                 });
             });
-            req.on('close', () => proxyReq.destroy());
-            proxyReq.on('error', () => res.sendStatus(502));
+            proxyReq.on('error', (err) => {
+                writeDebugLog(`[COMPLETIONS ERR (Non-Stream)] ${err.stack || err.message}`);
+                res.sendStatus(502);
+            });
             proxyReq.write(postData);
             proxyReq.end();
         }

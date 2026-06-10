@@ -135,19 +135,18 @@ function patchCompletionsResponseBody(body, isStream) {
             }
             
             const fixedContent = fixAssistantToolCallContent(fullContent);
-            if (fullContent !== fixedContent) {
-                writeDebugLog(`[Bridge Patch] Fixed flat tool call in streamed response. Length: ${fullContent.length} -> ${fixedContent.length}`);
-                if (lastEventObj) {
-                    lastEventObj.choices[0].delta = { role: "assistant", content: fixedContent };
-                    lastEventObj.choices[0].finish_reason = "stop";
-                    
-                    const newStream = [
-                        `data: ${JSON.stringify(lastEventObj)}`,
-                        `data: [DONE]`,
-                        ``
-                    ].join('\n\n');
-                    return newStream;
-                }
+            if (lastEventObj) {
+                const isFixed = fullContent !== fixedContent;
+                writeDebugLog(`[Bridge Patch] Streamed completion unified. Fixed=${isFixed}. Length: ${fullContent.length} -> ${fixedContent.length}`);
+                lastEventObj.choices[0].delta = { role: "assistant", content: fixedContent };
+                lastEventObj.choices[0].finish_reason = "stop";
+                
+                const newStream = [
+                    `data: ${JSON.stringify(lastEventObj)}`,
+                    `data: [DONE]`,
+                    ``
+                ].join('\n\n');
+                return newStream;
             }
         } catch (e) {
             writeDebugLog(`[Bridge Patch Error] Failed to parse stream body: ${e.message}`);

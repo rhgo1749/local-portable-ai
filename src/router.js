@@ -198,7 +198,7 @@ function setupRouter(app) {
                                                            trimmedText.startsWith('{') || 
                                                            trimmedText.startsWith('`');
                                 
-                                if (!startsWithToolChar || accumulatedText.length > 200) {
+                                if (!startsWithToolChar || accumulatedText.length > 50000) {
                                     isStreamingActive = true;
                                     flushBuffer();
                                 }

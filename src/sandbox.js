@@ -14,7 +14,7 @@ const allowedDirs = [
             realDir = fs.realpathSync(dir);
         }
     } catch (e) {}
-    let norm = path.resolve(realDir).toLowerCase().replace(/\\/g, '/');
+    let norm = path.resolve(realDir).normalize('NFC').toLowerCase().replace(/\\/g, '/');
     if (!norm.endsWith('/')) norm += '/';
     return norm;
 });
@@ -56,6 +56,7 @@ function getRealResolvedPath(resolved) {
 
 function findFilesRecursively(dir, fileNameQuery, results = []) {
     try {
+        const normalizedQuery = (fileNameQuery || '').normalize('NFC').toLowerCase();
         const files = fs.readdirSync(dir);
         for (const file of files) {
             const fullPath = path.join(dir, file);
@@ -67,13 +68,16 @@ function findFilesRecursively(dir, fileNameQuery, results = []) {
                 if (lowerFile !== 'node_modules' && lowerFile !== '.git' && lowerFile !== '.mcp_cache') {
                     findFilesRecursively(fullPath, fileNameQuery, results);
                 }
-            } else if (file.toLowerCase().includes(fileNameQuery.toLowerCase())) {
-                const relative = path.relative(projectRoot, fullPath).replace(/\\/g, '/');
-                results.push({
-                    name: file,
-                    path: relative.startsWith('.') ? relative : './' + relative,
-                    size: stat.size
-                });
+            } else {
+                const normalizedFile = file.normalize('NFC').toLowerCase();
+                if (normalizedFile.includes(normalizedQuery)) {
+                    const relative = path.relative(projectRoot, fullPath).replace(/\\/g, '/');
+                    results.push({
+                        name: file,
+                        path: relative.startsWith('.') ? relative : './' + relative,
+                        size: stat.size
+                    });
+                }
             }
         }
     } catch (e) {}
@@ -86,7 +90,7 @@ function validatePath(targetPath, checkExists = false) {
     let resolved = path.resolve(cleanPath);
     
     const checkAllowed = (p) => {
-        const norm = getRealResolvedPath(p).toLowerCase().replace(/\\/g, '/');
+        const norm = getRealResolvedPath(p).normalize('NFC').toLowerCase().replace(/\\/g, '/');
         return allowedDirs.some(allowedDir => {
             const normAllowed = allowedDir.endsWith('/') ? allowedDir : allowedDir + '/';
             const normTargetWithSlash = norm.endsWith('/') ? norm : norm + '/';
@@ -106,7 +110,8 @@ function validatePath(targetPath, checkExists = false) {
         if (baseName) {
             console.log(`[validatePath] 파일 없음: "${resolved}". 재귀 검색을 시작합니다...`);
             const foundFiles = findFilesRecursively(path.join(projectRoot, '작업공간'), baseName);
-            const exactMatches = foundFiles.filter(f => f.name.toLowerCase() === baseName.toLowerCase());
+            const normBaseName = baseName.normalize('NFC').toLowerCase();
+            const exactMatches = foundFiles.filter(f => f.name.normalize('NFC').toLowerCase() === normBaseName);
             
             if (exactMatches.length === 1) {
                 resolved = path.resolve(projectRoot, exactMatches[0].path);
@@ -114,7 +119,7 @@ function validatePath(targetPath, checkExists = false) {
             } else if (exactMatches.length > 1) {
                 throw new Error(`[파일 중복] "${baseName}"이(가) 여러 경로에 존재합니다: ${exactMatches.map(f => f.path).join(", ")}`);
             } else {
-                const partialMatches = foundFiles.filter(f => f.name.toLowerCase().includes(baseName.toLowerCase()));
+                const partialMatches = foundFiles.filter(f => f.name.normalize('NFC').toLowerCase().includes(normBaseName));
                 if (partialMatches.length === 1) {
                     resolved = path.resolve(projectRoot, partialMatches[0].path);
                     console.log(`[validatePath] 부분 일치 자동 복구 성공 -> "${resolved}"`);
@@ -126,7 +131,7 @@ function validatePath(targetPath, checkExists = false) {
     }
 
     const realResolved = getRealResolvedPath(resolved);
-    const normTarget = realResolved.toLowerCase().replace(/\\/g, '/');
+    const normTarget = realResolved.normalize('NFC').toLowerCase().replace(/\\/g, '/');
     const isAllowed = allowedDirs.some(allowedDir => {
         const normAllowed = allowedDir.endsWith('/') ? allowedDir : allowedDir + '/';
         const normTargetWithSlash = normTarget.endsWith('/') ? normTarget : normTarget + '/';
@@ -149,7 +154,7 @@ function validateWritePath(targetPath) {
     let resolved = path.resolve(cleanPath);
     
     const checkAllowed = (p) => {
-        const norm = getRealResolvedPath(p).toLowerCase().replace(/\\/g, '/');
+        const norm = getRealResolvedPath(p).normalize('NFC').toLowerCase().replace(/\\/g, '/');
         return allowedWriteDirs.some(allowedDir => {
             const normAllowed = allowedDir.endsWith('/') ? allowedDir : allowedDir + '/';
             const normTargetWithSlash = norm.endsWith('/') ? norm : norm + '/';
@@ -165,7 +170,7 @@ function validateWritePath(targetPath) {
     }
     
     const realResolved = getRealResolvedPath(resolved);
-    const normTarget = realResolved.toLowerCase().replace(/\\/g, '/');
+    const normTarget = realResolved.normalize('NFC').toLowerCase().replace(/\\/g, '/');
     
     const isAllowed = allowedWriteDirs.some(allowedDir => {
         const normAllowed = allowedDir.endsWith('/') ? allowedDir : allowedDir + '/';
@@ -187,3 +192,4 @@ module.exports = {
     validatePath,
     validateWritePath
 };
+

@@ -361,11 +361,30 @@ async function handleMcpJsonRpc(method, params, id) {
                 const bufA = await fs.readFile(validatePath(filePathA, true));
                 const bufB = await fs.readFile(validatePath(filePathB, true));
                 const result = await kd.compare(bufA.buffer, bufB.buffer);
+                
+                const formatBlock = (block) => {
+                    if (!block) return "";
+                    if (block.type === 'table') {
+                        try {
+                            return kd.blocksToMarkdown([block]).trim();
+                        } catch (e) {
+                            return "[테이블]";
+                        }
+                    }
+                    return block.text || "";
+                };
+
                 const lines = [`## 문서 비교 결과`, `추가: ${result.stats.added} | 삭제: ${result.stats.removed} | 변경: ${result.stats.modified}`, ""];
                 for (const d of result.diffs) {
-                    const prefix = d.type === "added" ? "+" : d.type === "removed" ? "-" : d.type === "modified" ? "~" : " ";
-                    const text = d.after?.text || d.before?.text || (d.after?.table ? "[테이블]" : "");
-                    lines.push(`${prefix} ${text.substring(0, 200)}`);
+                    if (d.type === 'unchanged') continue;
+                    
+                    if (d.type === 'added') {
+                        lines.push(`+ [추가] ${formatBlock(d.after)}`);
+                    } else if (d.type === 'removed') {
+                        lines.push(`- [삭제] ${formatBlock(d.before)}`);
+                    } else if (d.type === 'modified') {
+                        lines.push(`~ [변경] "${formatBlock(d.before)}" -> "${formatBlock(d.after)}"`);
+                    }
                 }
                 output = lines.join("\n");
             } 
@@ -398,8 +417,8 @@ async function handleMcpJsonRpc(method, params, id) {
                 }
             } 
             else if (name === 'markdown_to_hwpx') {
-                if (!outputPath) throw new Error("output parameter is required.");
-                const safeOutputPath = validateWritePath(outputPath);
+                const finalOutputPath = outputPath || '작업공간/output.hwpx';
+                const safeOutputPath = validateWritePath(finalOutputPath);
                 let mdContent = args.markdown || "";
                 
                 if (mdContent && ((mdContent.includes('trth/thth') || mdContent.includes('trtd')) && !mdContent.includes('<table>'))) {

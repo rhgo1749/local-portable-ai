@@ -85,6 +85,22 @@ function validatePath(targetPath, checkExists = false) {
     const cleanPath = sanitizeInputPath(targetPath);
     let resolved = path.resolve(cleanPath);
     
+    const checkAllowed = (p) => {
+        const norm = getRealResolvedPath(p).toLowerCase().replace(/\\/g, '/');
+        return allowedDirs.some(allowedDir => {
+            const normAllowed = allowedDir.endsWith('/') ? allowedDir : allowedDir + '/';
+            const normTargetWithSlash = norm.endsWith('/') ? norm : norm + '/';
+            return normTargetWithSlash.startsWith(normAllowed);
+        });
+    };
+    
+    if (!checkAllowed(resolved)) {
+        const fallback = path.resolve(path.join(projectRoot, '작업공간', cleanPath));
+        if (checkAllowed(fallback)) {
+            resolved = fallback;
+        }
+    }
+    
     if (checkExists && !fs.existsSync(resolved)) {
         const baseName = path.basename(resolved);
         if (baseName) {
@@ -130,7 +146,24 @@ function validatePath(targetPath, checkExists = false) {
 function validateWritePath(targetPath) {
     if (!targetPath) throw new Error("파일 저장 경로가 제공되지 않았습니다.");
     const cleanPath = sanitizeInputPath(targetPath);
-    const resolved = path.resolve(cleanPath);
+    let resolved = path.resolve(cleanPath);
+    
+    const checkAllowed = (p) => {
+        const norm = getRealResolvedPath(p).toLowerCase().replace(/\\/g, '/');
+        return allowedWriteDirs.some(allowedDir => {
+            const normAllowed = allowedDir.endsWith('/') ? allowedDir : allowedDir + '/';
+            const normTargetWithSlash = norm.endsWith('/') ? norm : norm + '/';
+            return normTargetWithSlash.startsWith(normAllowed);
+        });
+    };
+    
+    if (!checkAllowed(resolved)) {
+        const fallback = path.resolve(path.join(projectRoot, '작업공간', cleanPath));
+        if (checkAllowed(fallback)) {
+            resolved = fallback;
+        }
+    }
+    
     const realResolved = getRealResolvedPath(resolved);
     const normTarget = realResolved.toLowerCase().replace(/\\/g, '/');
     

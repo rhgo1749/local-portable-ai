@@ -15,14 +15,11 @@ const BRIDGE_ORIGIN_DEFAULT = `http://${LLM_HOST}:${getConfigPort()}`;
 
 const defaultSettingsPath = path.join(projectRoot, 'default_settings.json');
 let defaultSettingsConfig = {};
-let allowedUserOverrides = [];
 
 async function loadDefaultSettings() {
     try {
         const raw = await fs.readFile(defaultSettingsPath, 'utf8');
-        const parsed = JSON.parse(raw);
-        defaultSettingsConfig = parsed.config || {};
-        allowedUserOverrides = parsed.userOverrides || [];
+        defaultSettingsConfig = JSON.parse(raw).config || {};
     } catch (e) {}
 }
 
@@ -308,14 +305,17 @@ function setupRouter(app) {
                                 .replace("You have multimodal vision capabilities.", "You are a text-only assistant.");
                         }
                     }
+                    if (targetConfig.mcpServers && typeof targetConfig.mcpServers === 'string') {
+                        try {
+                            targetConfig.mcpServers = JSON.parse(targetConfig.mcpServers);
+                        } catch(e) {}
+                    }
+                    
                     const scriptToInject = `<script>
                     (function() {
                         try {
                             var def = ${JSON.stringify(targetConfig)};
-                            var allowedOverrides = ${JSON.stringify(allowedUserOverrides)};
-                            var allowedOverridesSet = new Set(allowedOverrides);
                             var configKey = "LlamaUi.config";
-                            var overridesKey = "LlamaUi.userOverrides";
                             
                             var configObj = {};
                             var existingConfig = localStorage.getItem(configKey);
@@ -325,51 +325,12 @@ function setupRouter(app) {
                                 } catch(e) {}
                             }
                             
-                            var overridesArr = [];
-                            var existingOverrides = localStorage.getItem(overridesKey);
-                            if (existingOverrides) {
-                                try {
-                                    overridesArr = JSON.parse(existingOverrides);
-                                } catch(e) {}
-                            }
-                            var overridesSet = new Set(overridesArr);
-                            
                             var updated = false;
                             for (var k in def) {
-                                if (!allowedOverridesSet.has(k) || !overridesSet.has(k)) {
-                                    var valStr = typeof def[k] === 'object' ? JSON.stringify(def[k]) : String(def[k]);
-                                    var currentValStr = configObj[k] !== undefined ? (typeof configObj[k] === 'object' ? JSON.stringify(configObj[k]) : String(configObj[k])) : null;
-                                    if (currentValStr !== valStr) {
-                                        configObj[k] = def[k];
-                                        updated = true;
-                                    }
-                                }
-                            }
-                            
-                            if (def["mcpServers"]) {
-                                var targetMcp = def["mcpServers"];
-                                var targetMcpObj = null;
-                                try {
-                                    targetMcpObj = typeof targetMcp === 'string' ? JSON.parse(targetMcp) : targetMcp;
-                                } catch(e) {}
-                                
-                                var currentMcpObj = null;
-                                try {
-                                    var currentMcp = configObj["mcpServers"];
-                                    currentMcpObj = typeof currentMcp === 'string' ? JSON.parse(currentMcp) : currentMcp;
-                                } catch(e) {}
-                                
-                                var mcpMatch = false;
-                                if (targetMcpObj && currentMcpObj && Array.isArray(targetMcpObj) && Array.isArray(currentMcpObj)) {
-                                    if (targetMcpObj.length === currentMcpObj.length && targetMcpObj.length > 0) {
-                                        if (targetMcpObj[0].url === currentMcpObj[0].url && targetMcpObj[0].enabled === currentMcpObj[0].enabled) {
-                                            mcpMatch = true;
-                                        }
-                                    }
-                                }
-                                
-                                if (!mcpMatch && targetMcpObj) {
-                                    configObj["mcpServers"] = targetMcpObj;
+                                var valStr = typeof def[k] === 'object' ? JSON.stringify(def[k]) : String(def[k]);
+                                var currentValStr = configObj[k] !== undefined ? (typeof configObj[k] === 'object' ? JSON.stringify(configObj[k]) : String(configObj[k])) : null;
+                                if (currentValStr !== valStr) {
+                                    configObj[k] = def[k];
                                     updated = true;
                                 }
                             }
@@ -380,6 +341,7 @@ function setupRouter(app) {
                                 localStorage.removeItem('settings');
                                 localStorage.removeItem('mcpServers');
                                 localStorage.removeItem('apiKey');
+                                localStorage.removeItem('LlamaUi.userOverrides');
                                 window.location.reload();
                             }
                         } catch(e) {}

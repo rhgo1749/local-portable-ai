@@ -104,15 +104,6 @@ const tools = [
         }
     },
     {
-        name: "read_file",
-        description: "[텍스트 전용 파일 읽기 - 호환용] 호환형 플레인 리더기 도구입니다.",
-        inputSchema: {
-            type: "object",
-            properties: { path: { type: "string" } },
-            required: ["path"]
-        }
-    },
-    {
         name: "write_file",
         description: "[텍스트 파일 쓰기] 지정 영역에 영구 플레인 명세를 새로 씁니다.",
         inputSchema: {
@@ -123,19 +114,13 @@ const tools = [
     },
     {
         name: "list_directory",
-        description: "[디렉토리 목록 조회] 타깃 폴더 구조 내 이름 리스트를 탐색 로드합니다.",
+        description: "[디렉토리 목록 조회] 대상 폴더의 파일/폴더 목록과 크기를 확인합니다.",
         inputSchema: {
             type: "object",
-            properties: { path: { type: "string" } },
-            required: ["path"]
-        }
-    },
-    {
-        name: "list_directory_with_sizes",
-        description: "[상세 디렉토리 조회] 세부 메타 및 디스크 점유 정보를 리스트화합니다.",
-        inputSchema: {
-            type: "object",
-            properties: { path: { type: "string" }, sortBy: { type: "string", enum: ["name", "size"] } },
+            properties: { 
+                path: { type: "string" },
+                sortBy: { type: "string", enum: ["name", "size"] }
+            },
             required: ["path"]
         }
     },
@@ -535,9 +520,25 @@ async function handleMcpJsonRpc(method, params, id) {
             else if (name === 'list_directory') {
                 const safePath = validatePath(filePath || '작업공간', true);
                 const entries = await fs.readdir(safePath);
-                output = entries.join('\n');
+                if (args.sortBy) {
+                    const details = [];
+                    for (const file of entries) {
+                        try {
+                            const stat = await fs.stat(path.join(safePath, file));
+                            details.push({ name: file, size: stat.size, isDirectory: stat.isDirectory() });
+                        } catch(e) { 
+                            details.push({ name: file, size: 0, isDirectory: false }); 
+                        }
+                    }
+                    if (args.sortBy === 'size') details.sort((a, b) => b.size - a.size);
+                    else details.sort((a, b) => a.name.localeCompare(b.name));
+                    output = details.map(d => `${d.isDirectory ? '[DIR]' : '[FILE]'} ${d.name} (${d.size.toLocaleString()} bytes)`).join('\n');
+                } else {
+                    output = entries.join('\n');
+                }
             } 
             else if (name === 'list_directory_with_sizes') {
+                // Backward compatibility just in case
                 const safePath = validatePath(filePath || '작업공간', true);
                 const entries = await fs.readdir(safePath);
                 const details = [];

@@ -179,8 +179,14 @@ function setupRouter(app) {
                                     const parsedEvent = JSON.parse(trimmedLine.substring(6));
                                     if (parsedEvent.choices && parsedEvent.choices[0]) {
                                         const delta = parsedEvent.choices[0].delta;
-                                        if (delta && delta.content) {
-                                            accumulatedText += delta.content;
+                                        if (delta) {
+                                            if (delta.content) {
+                                                accumulatedText += delta.content;
+                                            }
+                                            if (delta.tool_calls) {
+                                                isStreamingActive = true;
+                                                flushBuffer();
+                                            }
                                         }
                                     }
                                 } catch (e) {}

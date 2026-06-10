@@ -337,10 +337,28 @@ function setupRouter(app) {
                             
                             if (def["mcpServers"]) {
                                 var targetMcp = def["mcpServers"];
-                                var currentMcpStr = typeof configObj["mcpServers"] === 'object' ? JSON.stringify(configObj["mcpServers"]) : String(configObj["mcpServers"] || '');
-                                var targetMcpStr = typeof targetMcp === 'object' ? JSON.stringify(targetMcp) : String(targetMcp);
-                                if (currentMcpStr !== targetMcpStr) {
-                                    configObj["mcpServers"] = targetMcp;
+                                var targetMcpObj = null;
+                                try {
+                                    targetMcpObj = typeof targetMcp === 'string' ? JSON.parse(targetMcp) : targetMcp;
+                                } catch(e) {}
+                                
+                                var currentMcpObj = null;
+                                try {
+                                    var currentMcp = configObj["mcpServers"];
+                                    currentMcpObj = typeof currentMcp === 'string' ? JSON.parse(currentMcp) : currentMcp;
+                                } catch(e) {}
+                                
+                                var mcpMatch = false;
+                                if (targetMcpObj && currentMcpObj && Array.isArray(targetMcpObj) && Array.isArray(currentMcpObj)) {
+                                    if (targetMcpObj.length === currentMcpObj.length && targetMcpObj.length > 0) {
+                                        if (targetMcpObj[0].url === currentMcpObj[0].url && targetMcpObj[0].enabled === currentMcpObj[0].enabled) {
+                                            mcpMatch = true;
+                                        }
+                                    }
+                                }
+                                
+                                if (!mcpMatch && targetMcpObj) {
+                                    configObj["mcpServers"] = targetMcpObj;
                                     updated = true;
                                 }
                             }

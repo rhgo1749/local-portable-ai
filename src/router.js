@@ -129,33 +129,122 @@ function setupRouter(app) {
             }
         };
         
-        const proxyReq = http.request(options, (proxyRes) => {
-            let body = '';
-            proxyRes.on('data', chunk => body += chunk);
-            proxyRes.on('end', () => {
-                writeDebugLog(`[COMPLETIONS RES] status=${proxyRes.statusCode} body=${body}`);
+        const isStream = req.body.stream === true;
+        
+        if (isStream) {
+            const proxyReq = http.request(options, (proxyRes) => {
+                res.writeHead(proxyRes.statusCode || 200, {
+                    ...proxyRes.headers,
+                    'content-type': 'text/event-stream',
+                    'cache-control': 'no-cache',
+                    'connection': 'keep-alive'
+                });
                 
-                const headers = { ...proxyRes.headers };
-                const isStream = req.body.stream === true;
-                let patchedBody = body;
+                let sseBuffer = '';
+                let accumulatedText = '';
+                let bufferedLines = [];
+                let isStreamingActive = false;
                 
-                if (proxyRes.statusCode === 200) {
-                    patchedBody = patchCompletionsResponseBody(body, isStream);
-                    if (patchedBody !== body) {
-                        writeDebugLog(`[Bridge Patch] Response body changed. Original length: ${body.length}, Patched length: ${patchedBody.length}`);
-                        if (headers['content-length'] !== undefined) {
-                            headers['content-length'] = Buffer.byteLength(patchedBody);
+                const flushBuffer = () => {
+                    if (bufferedLines.length > 0) {
+                        for (const line of bufferedLines) {
+                            res.write(line + '\n');
+                        }
+                        bufferedLines = [];
+                    }
+                };
+                
+                proxyRes.on('data', (chunk) => {
+                    sseBuffer += chunk.toString();
+                    let index;
+                    while ((index = sseBuffer.indexOf('\n')) !== -1) {
+                        const line = sseBuffer.substring(0, index);
+                        sseBuffer = sseBuffer.substring(index + 1);
+                        
+                        const trimmedLine = line.trim();
+                        
+                        if (isStreamingActive) {
+                            res.write(line + '\n');
+                        } else {
+                            bufferedLines.push(line);
+                            
+                            if (trimmedLine.startsWith('data: ') && trimmedLine !== 'data: [DONE]') {
+                                try {
+                                    const parsedEvent = JSON.parse(trimmedLine.substring(6));
+                                    if (parsedEvent.choices && parsedEvent.choices[0]) {
+                                        const delta = parsedEvent.choices[0].delta;
+                                        if (delta && delta.content) {
+                                            accumulatedText += delta.content;
+                                        }
+                                    }
+                                } catch (e) {}
+                            }
+                            
+                            const trimmedText = accumulatedText.trim();
+                            if (trimmedText.length > 0) {
+                                const startsWithToolChar = trimmedText.startsWith('[') || 
+                                                           trimmedText.startsWith('{') || 
+                                                           trimmedText.startsWith('`');
+                                
+                                if (!startsWithToolChar || accumulatedText.length > 200) {
+                                    isStreamingActive = true;
+                                    flushBuffer();
+                                }
+                            }
                         }
                     }
-                }
+                });
                 
-                res.writeHead(proxyRes.statusCode || 200, headers);
-                res.end(patchedBody);
+                proxyRes.on('end', () => {
+                    if (sseBuffer.length > 0) {
+                        if (isStreamingActive) {
+                            res.write(sseBuffer + '\n');
+                        } else {
+                            bufferedLines.push(sseBuffer);
+                        }
+                    }
+                    
+                    if (!isStreamingActive) {
+                        const completeBody = bufferedLines.join('\n');
+                        const patchedBody = patchCompletionsResponseBody(completeBody, true);
+                        res.write(patchedBody);
+                    }
+                    res.end();
+                });
             });
-        });
-        proxyReq.on('error', () => res.sendStatus(502));
-        proxyReq.write(postData);
-        proxyReq.end();
+            req.on('close', () => proxyReq.destroy());
+            proxyReq.on('error', () => res.sendStatus(502));
+            proxyReq.write(postData);
+            proxyReq.end();
+        } else {
+            const proxyReq = http.request(options, (proxyRes) => {
+                let body = '';
+                proxyRes.on('data', chunk => body += chunk);
+                proxyRes.on('end', () => {
+                    writeDebugLog(`[COMPLETIONS RES] status=${proxyRes.statusCode} body=${body}`);
+                    
+                    const headers = { ...proxyRes.headers };
+                    let patchedBody = body;
+                    
+                    if (proxyRes.statusCode === 200) {
+                        patchedBody = patchCompletionsResponseBody(body, false);
+                        if (patchedBody !== body) {
+                            writeDebugLog(`[Bridge Patch] Response body changed. Original length: ${body.length}, Patched length: ${patchedBody.length}`);
+                            if (headers['content-length'] !== undefined) {
+                                headers['content-length'] = Buffer.byteLength(patchedBody);
+                            }
+                        }
+                    }
+                    
+                    res.writeHead(proxyRes.statusCode || 200, headers);
+                    res.end(patchedBody);
+                });
+            });
+            req.on('close', () => proxyReq.destroy());
+            proxyReq.on('error', () => res.sendStatus(502));
+            proxyReq.write(postData);
+            proxyReq.end();
+        }
     });
 
     // POST proxy fallback

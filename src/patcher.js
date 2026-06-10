@@ -41,22 +41,41 @@ function tryFixJsonString(jsonStr) {
 function fixAssistantToolCallContent(text) {
     if (typeof text !== 'string') return text;
 
-    // 1. ```json ... ``` 블록을 찾아서 내부 텍스트 추출 및 수정
-    const codeBlockRegex = /```json\s*([\s\S]*?)\s*```/g;
+    // 1. ```json ... ``` 또는 ``` ... ``` 블록을 찾아서 내부 텍스트 추출, 수정 및 ```json 으로 통합
+    const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/g;
     let modified = text.replace(codeBlockRegex, (match, jsonText) => {
-        const fixedJsonText = tryFixJsonString(jsonText);
-        if (fixedJsonText) {
-            return `\`\`\`json\n${fixedJsonText}\n\`\`\``;
-        }
+        const trimmedJson = jsonText.trim();
+        try {
+            const parsed = JSON.parse(trimmedJson);
+            const isValid = (Array.isArray(parsed) && parsed.length > 0 && parsed[0].tool_name) ||
+                            (parsed && typeof parsed === 'object' && parsed.tool_name);
+            if (isValid) {
+                let fixedJsonText = tryFixJsonString(trimmedJson);
+                if (!fixedJsonText) {
+                    fixedJsonText = JSON.stringify(Array.isArray(parsed) ? parsed : [parsed], null, 2);
+                }
+                return `\`\`\`json\n${fixedJsonText}\n\`\`\``;
+            }
+        } catch (e) {}
         return match;
     });
 
-    // 2. 만약 코드블록이 없어도 단독 JSON 형태가 있으면 시도
+    // 2. 만약 코드블록이 없어도 단독 JSON 형태가 있으면 시도하여 ```json 블록으로 포장
     if (modified === text) {
-        const fixed = tryFixJsonString(text);
-        if (fixed) {
-            modified = fixed;
-        }
+        const trimmed = text.trim();
+        try {
+            const parsed = JSON.parse(trimmed);
+            const isValid = (Array.isArray(parsed) && parsed.length > 0 && parsed[0].tool_name) ||
+                            (parsed && typeof parsed === 'object' && parsed.tool_name);
+            if (isValid) {
+                let fixedJsonText = tryFixJsonString(trimmed);
+                if (!fixedJsonText) {
+                    fixedJsonText = JSON.stringify(Array.isArray(parsed) ? parsed : [parsed], null, 2);
+                }
+                writeDebugLog(`[Bridge Patch] Wrapped raw JSON tool call into markdown code block.`);
+                modified = `\`\`\`json\n${fixedJsonText}\n\`\`\``;
+            }
+        } catch (e) {}
     }
 
     // 3. 만약 대괄호로 감싸진 단독 단어 형태가 있으면 (예: [list_directory])

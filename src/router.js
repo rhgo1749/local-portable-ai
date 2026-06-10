@@ -316,6 +316,7 @@ function setupRouter(app) {
                         try {
                             var def = ${JSON.stringify(targetConfig)};
                             var configKey = "LlamaUi.config";
+                            var overridesKey = "LlamaUi.userOverrides";
                             
                             var configObj = {};
                             var existingConfig = localStorage.getItem(configKey);
@@ -324,6 +325,15 @@ function setupRouter(app) {
                                     configObj = JSON.parse(existingConfig);
                                 } catch(e) {}
                             }
+                            
+                            var overridesArr = [];
+                            var existingOverrides = localStorage.getItem(overridesKey);
+                            if (existingOverrides) {
+                                try {
+                                    overridesArr = JSON.parse(existingOverrides);
+                                } catch(e) {}
+                            }
+                            var overridesSet = new Set(overridesArr);
                             
                             var updated = false;
                             for (var k in def) {
@@ -335,13 +345,22 @@ function setupRouter(app) {
                                 }
                             }
                             
-                            if (updated) {
+                            var overridesUpdated = false;
+                            for (var k in def) {
+                                if (!overridesSet.has(k)) {
+                                    overridesArr.push(k);
+                                    overridesSet.add(k);
+                                    overridesUpdated = true;
+                                }
+                            }
+                            
+                            if (updated || overridesUpdated) {
                                 localStorage.setItem(configKey, JSON.stringify(configObj));
+                                localStorage.setItem(overridesKey, JSON.stringify(overridesArr));
                                 // Clean up old keys from previous implementations
                                 localStorage.removeItem('settings');
                                 localStorage.removeItem('mcpServers');
                                 localStorage.removeItem('apiKey');
-                                localStorage.removeItem('LlamaUi.userOverrides');
                                 window.location.reload();
                             }
                         } catch(e) {}

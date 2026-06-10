@@ -23,24 +23,6 @@ const tools = [
         }
     },
     {
-        name: "detect_format",
-        description: "[포맷 감지] 실제 포맷 명칭을 정확히 판별합니다.",
-        inputSchema: {
-            type: "object",
-            properties: { file_path: { type: "string", description: "대상 파일 경로" } },
-            required: ["file_path"]
-        }
-    },
-    {
-        name: "parse_metadata",
-        description: "[메타데이터 추출] 메타데이터를 속성별 JSON으로 로드합니다.",
-        inputSchema: {
-            type: "object",
-            properties: { file_path: { type: "string", description: "대상 파일 경로" } },
-            required: ["file_path"]
-        }
-    },
-    {
         name: "parse_pages",
         description: "[특정 페이지 파싱] 문서의 지정 구역 범위만 지정 파싱합니다.",
         inputSchema: {
@@ -65,15 +47,6 @@ const tools = [
             type: "object",
             properties: { file_path_a: { type: "string", description: "원본 경로" }, file_path_b: { type: "string", description: "수정본 경로" } },
             required: ["file_path_a", "file_path_b"]
-        }
-    },
-    {
-        name: "parse_form",
-        description: "[서식 필드 추출] 신청서 서식 내 빈 필드 라벨 목록을 JSON화합니다.",
-        inputSchema: {
-            type: "object",
-            properties: { file_path: { type: "string", description: "서식 파일 경로" } },
-            required: ["file_path"]
         }
     },
     {

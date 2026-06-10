@@ -30,7 +30,13 @@ const sseClients = new Map();
 function setupRouter(app) {
     app.use((req, res, next) => {
         const origin = req.headers.origin;
-        if (origin && (origin.includes(`${LLM_HOST}:${getConfigPort()}`) || origin.includes(`localhost:${getConfigPort()}`))) {
+        const llmPort = getLlamaServerPort();
+        if (origin && (
+            origin.includes(`${LLM_HOST}:${getConfigPort()}`) || 
+            origin.includes(`localhost:${getConfigPort()}`) ||
+            origin.includes(`${LLM_HOST}:${llmPort}`) ||
+            origin.includes(`localhost:${llmPort}`)
+        )) {
             res.header('Access-Control-Allow-Origin', origin);
         } else {
             res.header('Access-Control-Allow-Origin', BRIDGE_ORIGIN_DEFAULT);
